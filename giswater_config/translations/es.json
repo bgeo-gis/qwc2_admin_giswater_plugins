@@ -1,0 +1,15 @@
+{
+  "title": "Editor de Configuración Giswater",
+  "edit_config": "Editar giswaterConfig.json",
+  "edit_file": "Editar {file_name}",
+  "description": "Edita el archivo de configuración giswaterConfig.json del tenant actual.",
+  "save": "Guardar",
+  "cancel": "Cancelar",
+  "annotations": "Anotaciones:",
+  "line": "en la línea",
+  "file_updated": "{file_name} ha sido actualizado.",
+  "invalid_json": "JSON inválido: {error}",
+  "could_not_read": "No se pudo leer <b>{file_name}</b>:<br><br><pre>{error}</pre>",
+  "could_not_save": "No se pudo guardar <b>{file_name}</b>:<br><br><pre>{error}</pre>",
+  "required_config_not_set": "La opción de configuración requerida 'output_config_path' no está establecida"
+}

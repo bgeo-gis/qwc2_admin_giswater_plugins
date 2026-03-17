@@ -1,0 +1,91 @@
+{% extends "templates/base.html" %}
+{%- block styles %}
+{{ super() }}
+<link href="{{ url_for('plugin_static', plugin='giswater_logs', filename='application.css') }}" rel="stylesheet">
+{%- endblock styles %}
+{% block title %}{{ title }}{% endblock %}
+{% block container %}
+{% block scripts %}
+<script>
+    function copyToClipboard(text) {
+        var div = document.createElement('div');
+        div.innerHTML = text;
+        var texto_desescapado = div.textContent || div.innerText || '';
+        var input = document.createElement('textarea');
+        input.id = '__copyToClipboard__';
+        input.style.position = 'fixed';
+        input.style.top = '0';
+        input.style.left = '0';
+        input.value = texto_desescapado;
+        document.body.appendChild(input);
+        input.focus();
+        input.select();
+        document.execCommand('copy');
+        input.remove();
+    }
+
+    function showFullJSON(jsonString) {
+        //jsonString = jsonString.replace(/'/g, "\\'");
+        console.log(jsonString.toString())
+        var win = window.open("", "JSON", "width=800,height=600");
+        try {
+            var json = JSON.parse(jsonString);
+            var formattedJson = JSON.stringify(json, null, 2);
+            win.document.body.innerHTML = "<pre>" + formattedJson + "</pre>";
+        } catch (e) {
+            //escaped_text = jsonString.text()
+            win.document.body.innerHTML = "<pre>" + jsonString + "</pre>";
+        }
+    }
+</script>
+{% endblock scripts %}
+<h3>{{title}}</h3>
+<form method="get" action="{{ url_for('giswater_logs') }}" class="form-inline align-left">
+    <div class="form-group">
+        <label for="filter-date">Filter by Date:</label>
+        <input type="date" class="form-control" name="date" id="filter-date" value="{{ date_selected }}">
+      </div>
+      <button type="submit" class="btn btn-primary">Filter</button>
+</form>
+<form class="align-right" method="post" action="{{url_for('giswater_logs')}}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button type="submit" name="refresh" value="true">Refresh Logs</button>
+</form>
+<table class="table table-striped">
+    <tr class="table-active">
+        <th>Timestamp</th>
+        <th>User</th>
+        <th>Service</th>
+        <th>Execution (click to copy)</th>
+        <th>Response</th>
+    </tr>
+    {% for log in log_contents %}
+    <tr>
+        <td class='{{ log.level }}'>{{ log.timestamp }}</td>
+        <td>{{ log.user }}</td>
+        <td>{{ log.service }}</td>
+
+        <td >
+            <a id="serverExecution" href="#" onclick="copyToClipboard('{{ log.execution_msg_full.strip() }}');" role="button" class="btn btn-default copy" title="Copy to clipboard">{{ log.execution_msg }}{%
+                if log.execution_msg|length >= 80 %}...{% endif %}</a>
+        </td>
+       
+        <td class="text-center">
+            <a href="#" onclick="showFullJSON('{{ log.response_msg_full.strip() }}')" class="btn btn-primary">&#128065;</a>
+        </td>
+
+    </tr>
+{% endfor %}
+</table>
+<div>
+    <ul class="pagination">
+        {% for page in range(1, num_pages + 1) %}
+        {% if page == current_page %}
+        <li class="active"><a href="#">{{ page }}</a></li>
+        {% else %}
+        <li><a href="?page={{ page }}">{{ page }}</a></li>
+        {% endif %}
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,101 @@
+/* body {
+    font-family: 'Roboto', sans-serif;
+    background-color: #f5f5f5;
+    color: #333;
+    padding-top: 70px;
+} 
+*/
+
+h3 {
+    font-family: -apple-system,system-ui,"Segoe UI",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";
+    margin-bottom: 50px;
+}
+table {
+    empty-cells: show;
+}
+
+td.INFO {
+    background-color: #93d184; 
+}
+td.WARNING {
+  background-color: #dee08b; 
+}
+td.ERROR {
+  background-color: #d97373; 
+}
+
+.btn.copy {
+    width: 100%;
+    text-align: left; 
+  }
+
+.empty-cell {
+    visibility: hidden;
+  }
+  
+form.align-right {
+  text-align: right;
+  margin-bottom: 5px;
+  padding: 5px;
+  float: right;
+  
+}
+  
+form.align-left {
+  margin-top: 10px;
+  margin-bottom: 15px;
+  padding: 5px;
+  display: inline-block;
+}
+  
+/* CSS */
+form.align-right button {
+  appearance: none;
+  background-color: #2ea44f;
+  border: 1px solid rgba(27, 31, 35, .15);
+  border-radius: 6px;
+  box-shadow: rgba(27, 31, 35, .1) 0 1px 0;
+  box-sizing: border-box;
+  color: #fff;
+  cursor: pointer;
+  display: inline-block;
+  font-family: -apple-system,system-ui,"Segoe UI",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji";
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 6px 16px;
+  position: relative;
+  text-align: center;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+form.align-right button:focus:not(:focus-visible):not(.focus-visible) {
+  box-shadow: none;
+  outline: none;
+}
+
+form.align-right button:hover {
+  background-color: #2c974b;
+}
+
+form.align-right button:focus {
+  box-shadow: rgba(46, 164, 79, .4) 0 0 0 3px;
+  outline: none;
+}
+
+form.align-right button:disabled {
+  background-color: #94d3a2;
+  border-color: rgba(27, 31, 35, .1);
+  color: rgba(255, 255, 255, .8);
+  cursor: default;
+}
+
+form.align-right button:active {
+  background-color: #298e46;
+  box-shadow: rgba(20, 70, 32, .2) 0 1px 0 inset;
+}

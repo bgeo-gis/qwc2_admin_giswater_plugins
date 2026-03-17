@@ -1,0 +1,13 @@
+{% extends "templates/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block container %}
+  <h1>{{ title }}</h1>
+
+  <p>{{ i18n.translate('description') }}</p>
+
+  <br>
+
+  <a href="{{ url_for('giswater_config_edit_giswater_config') }}" class="btn btn-primary" role="button">
+    <i class="fas fa-edit"></i> {{ i18n.translate('edit_config') }}
+  </a>
+{% endblock %}

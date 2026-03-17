@@ -1,0 +1,25 @@
+{% extends "templates/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block container %}
+    <h1>{{ title }}</h1>
+    <table>
+        <tr>
+            <th>Timestamp</th>
+            <th>Level</th>
+            <th>Tenant</th>
+            <th>User</th>
+            <th>Service</th>
+            <th>Message</th>
+        </tr>
+        {% for log in log_contents %}
+        <tr>
+            <td>{{ log.timestamp }}</td>
+            <td>{{ log.level }}</td>
+            <td>{{ log.tenant }}</td>
+            <td>{{ log.user }}</td>
+            <td>{{ log.service }}</td>
+            <td>{{ log.message }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+{% endblock %}
