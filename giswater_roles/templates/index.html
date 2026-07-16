@@ -1,0 +1,920 @@
+{% extends "templates/base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block scripts %}
+{{ super() }}
+<script src="{{ url_for('plugin_static', plugin='giswater_roles', filename='giswater_roles.js') }}"></script>
+{% endblock %}
+{% block styles %}
+{{ super() }}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<style type="text/css">
+  .table-toolbar {
+    margin-bottom: 12px;
+  }
+  .synced-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+  .synced-toolbar .toolbar-form {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    margin: 0;
+    vertical-align: middle;
+  }
+  .synced-toolbar .btn {
+    margin: 0;
+  }
+  #bulk-role-usernames {
+    display: none;
+  }
+  #bulk-role-form {
+    display: none;
+    margin: 0;
+    border-bottom: 1px solid #dde3ea;
+    background: #f8fafc;
+  }
+  #bulk-role-form.is-visible {
+    display: block;
+  }
+  .gw-bulk-role-table {
+    width: 100%;
+    table-layout: fixed;
+    margin: 0;
+    border-collapse: collapse;
+  }
+  .gw-bulk-role-table > tbody > tr > td {
+    padding: 10px 14px !important;
+    vertical-align: middle !important;
+    border: none;
+  }
+  #apply-pending-roles-form .btn-apply-pending-roles,
+  #bulk-role-form .btn-apply-role-bulk {
+    white-space: nowrap;
+  }
+  #apply-pending-roles-form {
+    display: none;
+    margin: 0;
+  }
+  #apply-pending-roles-form.has-pending {
+    display: inline-flex;
+  }
+  .user-manager-role-select.role-changed,
+  .user-role-select.role-changed {
+    border-color: #f0ad4e;
+    background-color: #fffdf5;
+  }
+  #pending-role-changes {
+    display: none;
+  }
+  .filter-panel {
+    margin-bottom: 16px;
+    border-color: #ddd;
+  }
+  .filter-panel .panel-body {
+    padding: 14px 16px 10px;
+  }
+  .filter-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 20px;
+  }
+  .filter-form .filter-field {
+    margin: 0;
+  }
+  .filter-form .filter-field label {
+    display: block;
+    margin-bottom: 4px;
+    font-weight: 600;
+    font-size: 12px;
+    color: #555;
+  }
+  .filter-form .filter-search {
+    flex: 1 1 240px;
+    max-width: 320px;
+  }
+  .filter-form .filter-role-tier {
+    flex: 0 1 170px;
+    min-width: 150px;
+  }
+  .filter-form .filter-not-in-pg {
+    flex: 0 0 auto;
+    padding-bottom: 1px;
+  }
+  .filter-form .filter-not-in-pg label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    height: 34px;
+    font-weight: 600;
+    font-size: 12px;
+    color: #555;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .filter-form .filter-not-in-pg input {
+    margin: 0;
+  }
+  .filter-form .filter-actions {
+    flex: 0 0 auto;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding-bottom: 1px;
+  }
+  .gw-search-field {
+    position: relative;
+    width: 100%;
+  }
+  .gw-search-field .gw-search-icon {
+    position: absolute;
+    left: 11px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #888;
+    font-size: 14px;
+    line-height: 1;
+    pointer-events: none;
+    z-index: 2;
+  }
+  .gw-search-field .form-control {
+    padding-left: 34px;
+    height: 34px;
+  }
+  .filter-form .filter-per-page {
+    flex: 0 1 120px;
+    min-width: 100px;
+  }
+  .pagination-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0 0;
+  }
+  .pagination-info {
+    margin: 0;
+    font-size: 12px;
+    color: #777;
+  }
+  .gw-pagination {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .gw-page-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 36px;
+    padding: 0 12px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    background: #fff;
+    color: #337ab7;
+    text-decoration: none !important;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1;
+    box-sizing: border-box;
+  }
+  .gw-page-btn:hover {
+    background: #f5f5f5;
+    border-color: #adadad;
+    color: #23527c;
+  }
+  .gw-page-btn.active {
+    background: #337ab7;
+    border-color: #2e6da4;
+    color: #fff;
+    font-weight: 700;
+    cursor: default;
+    pointer-events: none;
+  }
+  .gw-page-btn.disabled {
+    color: #999;
+    background: #f9f9f9;
+    border-color: #ddd;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .gw-section-wrap {
+    position: relative;
+    min-height: 80px;
+  }
+  .gw-section-overlay,
+  .gw-overlay-global {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 10px;
+    z-index: 20;
+  }
+  .gw-section-overlay.is-visible,
+  .gw-overlay-global.is-visible {
+    display: flex;
+  }
+  .gw-section-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(255, 255, 255, 0.82);
+    border-radius: 4px;
+  }
+  .gw-overlay-global {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    z-index: 2000;
+  }
+  .gw-overlay-panel {
+    background: #fff;
+    border-radius: 6px;
+    padding: 24px 32px;
+    min-width: 280px;
+    max-width: 420px;
+    text-align: center;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  }
+  .gw-overlay-message,
+  .gw-section-overlay-text {
+    margin: 0;
+    font-size: 14px;
+    color: #444;
+    font-weight: 600;
+  }
+  .gw-spinner {
+    color: #337ab7;
+    font-size: 28px;
+    line-height: 1;
+  }
+  .gw-progress-bar {
+    width: 100%;
+    height: 6px;
+    background: #e9ecef;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 4px;
+  }
+  .gw-progress-bar-fill {
+    display: block;
+    height: 100%;
+    width: 40%;
+    background: linear-gradient(90deg, #337ab7, #5bc0de);
+    border-radius: 3px;
+    animation: gw-progress-slide 1.4s ease-in-out infinite;
+  }
+  @keyframes gw-progress-slide {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(320%); }
+  }
+  body.gw-overlay-active {
+    overflow: hidden;
+  }
+  .gw-section-panel {
+    margin-bottom: 32px;
+    padding: 18px 20px 20px;
+    background: #fafbfc;
+    border: 1px solid #e3e8ee;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+  }
+  .gw-section-synced {
+    border-left: 4px solid #337ab7;
+  }
+  .gw-section-header {
+    margin-bottom: 14px;
+  }
+  .gw-section-header-text {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .gw-section-icon {
+    font-size: 22px;
+    margin-top: 4px;
+    flex-shrink: 0;
+  }
+  .gw-section-synced .gw-section-icon {
+    color: #337ab7;
+  }
+  .gw-section-title {
+    margin: 0 0 4px;
+    font-size: 20px;
+    font-weight: 600;
+    color: #2c3e50;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .gw-section-help {
+    margin: 0;
+    font-size: 13px;
+    color: #777;
+    line-height: 1.45;
+  }
+  .gw-count-badge {
+    display: inline-block;
+    min-width: 24px;
+    padding: 2px 8px;
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1.4;
+    text-align: center;
+    color: #fff;
+    background: #337ab7;
+    border-radius: 12px;
+    vertical-align: middle;
+  }
+  .gw-table-card {
+    background: #fff;
+    border: 1px solid #dde3ea;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  }
+  .gw-data-table,
+  .gw-bulk-role-table {
+    table-layout: fixed;
+  }
+  .gw-data-table {
+    margin-bottom: 0;
+  }
+  .gw-data-table col.gw-col-check,
+  .gw-bulk-role-table col.gw-col-check {
+    width: 44px;
+  }
+  .gw-data-table col.gw-col-role,
+  .gw-bulk-role-table col.gw-col-role {
+    width: 168px;
+  }
+  .gw-data-table col.gw-col-actions,
+  .gw-bulk-role-table col.gw-col-actions {
+    width: 260px;
+  }
+  .gw-data-table > thead > tr > th,
+  .gw-data-table > thead > tr > th.gw-th,
+  .gw-data-table > thead > tr > th.gw-th-check {
+    background: #2e5f96 !important;
+    background-image: linear-gradient(180deg, #3d6fa8 0%, #2e5f96 100%) !important;
+    border-bottom: none !important;
+    border-color: #285580 !important;
+    padding: 11px 14px !important;
+    vertical-align: middle;
+    color: #fff !important;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .gw-data-table .gw-th.text-right .gw-th-content {
+    justify-content: flex-end;
+  }
+  .gw-th-content {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .gw-th-icon {
+    font-size: 13px;
+    color: #fff !important;
+    opacity: 0.95;
+  }
+  .gw-th-content > span {
+    color: #fff !important;
+  }
+  .gw-th-check,
+  .gw-td-check {
+    width: 44px;
+    text-align: center;
+    vertical-align: middle !important;
+  }
+  .gw-data-table tbody td {
+    padding: 10px 14px !important;
+    vertical-align: middle !important;
+  }
+  .gw-data-table tbody tr:hover {
+    background-color: #f5f9fd !important;
+  }
+  .gw-user-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .gw-cell-icon {
+    color: #8aa0b5;
+    font-size: 12px;
+    width: 14px;
+    text-align: center;
+  }
+  .gw-email-cell {
+    color: #555;
+    font-size: 13px;
+  }
+  .gw-empty-value {
+    color: #bbb;
+    font-style: italic;
+    font-size: 13px;
+  }
+  .gw-role-badge {
+    display: inline-block;
+    padding: 3px 9px;
+    margin: 2px 4px 2px 0;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.4;
+    border-radius: 10px;
+    background: #e8f2fb;
+    color: #2a5a8a;
+    border: 1px solid #c5daf0;
+  }
+  .gw-sync-status {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+  .gw-sync-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: 0.03em;
+    border: 1px solid transparent;
+    min-width: 36px;
+  }
+  .gw-sync-badge.gw-sync-yes {
+    background: #eafaf1;
+    color: #1e8449;
+    border-color: #a9dfbf;
+  }
+  .gw-sync-badge.gw-sync-no {
+    background: #fdedec;
+    color: #c0392b;
+    border-color: #f5b7b1;
+  }
+  .gw-role-cell-pending {
+    position: relative;
+  }
+  .gw-td-role {
+    vertical-align: middle !important;
+  }
+  .gw-role-cell {
+    display: flex;
+    align-items: center;
+    min-height: 30px;
+    position: relative;
+    width: 100%;
+  }
+  select.user-tier-role-select,
+  select.user-manager-role-select,
+  select.user-role-select,
+  .gw-multi-select-toggle {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 30px;
+    padding: 5px 24px 5px 10px;
+    font-size: 12px;
+    line-height: 1.42857143;
+    color: #555;
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075);
+    box-sizing: border-box;
+  }
+  .gw-schema-multi-select {
+    position: relative;
+    width: 100%;
+  }
+  .gw-multi-select-toggle {
+    text-align: left;
+    display: block;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath fill='%23333' d='M0 0l4 5 4-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 8px 5px;
+  }
+  .gw-multi-select-toggle:focus {
+    border-color: #66afe9;
+    outline: 0;
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075),
+      0 0 8px rgba(102, 175, 233, 0.6);
+  }
+  .gw-multi-select-label {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: normal;
+  }
+  .gw-schema-multi-select.gw-role-select-pending .gw-multi-select-toggle,
+  select.gw-role-select-pending {
+    border-style: dashed !important;
+    border-color: #d4a574 !important;
+    background-color: #fffbf5 !important;
+    box-shadow: inset 0 0 0 1px rgba(212, 165, 116, 0.15);
+  }
+  .gw-multi-select-panel {
+    display: none;
+    position: fixed;
+    z-index: 3000;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+    max-height: 180px;
+    overflow-y: auto;
+    padding: 4px 0;
+  }
+  .gw-schema-multi-select.open .gw-multi-select-panel {
+    display: block;
+  }
+  .gw-multi-select-option {
+    display: block;
+    margin: 0;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: normal;
+    cursor: pointer;
+    white-space: nowrap;
+    color: #555;
+  }
+  .gw-multi-select-option:hover {
+    background: #f5f5f5;
+  }
+  .gw-multi-select-option input {
+    margin: 0 6px 0 0;
+    vertical-align: middle;
+  }
+  .gw-schema-multi-select.role-changed .gw-multi-select-toggle {
+    border-color: #f0ad4e;
+    background-color: #fffdf5;
+  }
+  .gw-inline-action-form {
+    display: inline-flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin: 0;
+    justify-content: flex-end;
+  }
+  .gw-td-actions {
+    min-width: 260px;
+    white-space: nowrap;
+  }
+  .gw-action-buttons {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  .gw-empty-alert {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 0;
+  }
+  .pagination-info i {
+    margin-right: 5px;
+    color: #999;
+  }
+  .filter-panel .panel-heading {
+    padding: 10px 16px;
+    background: #f7f9fb;
+    border-bottom: 1px solid #e3e8ee;
+    font-weight: 600;
+    font-size: 13px;
+    color: #555;
+  }
+  .filter-panel .panel-heading i {
+    margin-right: 6px;
+    color: #337ab7;
+  }
+  .gw-pending-banner-slot {
+    display: none;
+    margin-bottom: 12px;
+  }
+  .gw-pending-banner-slot.is-visible {
+    display: block;
+  }
+  .gw-pending-banner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+    background: #fff8e6;
+    border: 1px solid #f0d78c;
+    border-left: 4px solid #f0ad4e;
+    border-radius: 6px;
+    color: #7a5b00;
+    font-weight: 600;
+  }
+  .gw-pending-banner-main {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .gw-pending-banner-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  #apply-pending-roles-form .btn-cancel-pending-roles {
+    white-space: nowrap;
+  }
+  .gw-modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 2100;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .gw-modal.is-open {
+    display: flex;
+  }
+  .gw-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+  }
+  .gw-modal-dialog {
+    position: relative;
+    width: 100%;
+    max-width: 520px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2);
+    overflow: hidden;
+  }
+  .gw-modal-header,
+  .gw-modal-body,
+  .gw-modal-footer {
+    padding: 16px 20px;
+  }
+  .gw-modal-header {
+    border-bottom: 1px solid #eee;
+    background: #f8f9fb;
+  }
+  .gw-modal-header h4 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: #2c3e50;
+  }
+  .gw-modal-body {
+    max-height: 50vh;
+    overflow-y: auto;
+    color: #444;
+    line-height: 1.5;
+  }
+  .gw-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    border-top: 1px solid #eee;
+    background: #fafbfc;
+  }
+  .gw-confirm-list {
+    margin: 10px 0 0;
+    padding-left: 20px;
+  }
+  .gw-confirm-list + .gw-confirm-list {
+    margin-top: 14px;
+  }
+  .gw-confirm-note {
+    margin: 0 0 10px;
+    padding: 10px 12px;
+    background: #fff8e6;
+    border: 1px solid #f0d78c;
+    border-radius: 4px;
+    color: #7a5b00;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  .gw-confirm-footer {
+    margin: 12px 0 0;
+    font-size: 13px;
+    color: #777;
+  }
+  body.gw-modal-open {
+    overflow: hidden;
+  }
+</style>
+{% endblock %}
+{% block container %}
+  <script type="application/json" id="giswater-roles-config">
+    {
+      "partialSyncedUrl": {{ url_for('giswater_roles_partial', section='synced')|tojson }},
+      "partialTablesUrl": {{ url_for('giswater_roles_tables_partial')|tojson }},
+      "loadTableError": {{ i18n.translate('could_not_load_table')|tojson }},
+      "loadingPage": {{ i18n.translate('loading_page')|tojson }},
+      "applyingRoles": {{ i18n.translate('applying_roles')|tojson }},
+      "deletingUsers": {{ i18n.translate('deleting_users')|tojson }},
+      "creatingPgUser": {{ i18n.translate('creating_pg_user')|tojson }},
+      "deletingPgUser": {{ i18n.translate('deleting_pg_user')|tojson }},
+      "processingPleaseWait": {{ i18n.translate('processing_please_wait')|tojson }},
+      "loadingFilters": {{ i18n.translate('loading_filters')|tojson }},
+      "pendingBannerText": {{ i18n.translate('pending_banner_text')|tojson }},
+      "pendingRolesCreatePgIntro": {{ i18n.translate('pending_roles_create_pg_intro')|tojson }},
+      "createPgBadgeLabel": {{ i18n.translate('create_pg_badge')|tojson }},
+      "cancelPendingConfirm": {{ i18n.translate('pending_roles_cancel_confirm')|tojson }},
+      "confirmTitle": {{ i18n.translate('confirm_title')|tojson }},
+      "schemaRoleLabel": {{ i18n.translate('schema_role')|tojson }},
+      "schemaRolesSelectedLabel": {{ i18n.translate('schema_roles_selected')|tojson }},
+      "managerRoleLabel": {{ i18n.translate('manager_role')|tojson }},
+      "giswaterRoleLabel": {{ i18n.translate('giswater_role')|tojson }},
+      "urls": {
+        "applyChanges": {{ url_for('giswater_roles_apply_changes')|tojson }},
+        "bulkRoles": {{ url_for('giswater_roles_set_roles_bulk')|tojson }}
+      }
+    }
+  </script>
+  <div id="gw-confirm-modal" class="gw-modal" hidden>
+    <div class="gw-modal-backdrop"></div>
+    <div class="gw-modal-dialog" role="dialog" aria-modal="true">
+      <div class="gw-modal-header">
+        <h4 id="gw-confirm-title"></h4>
+      </div>
+      <div class="gw-modal-body" id="gw-confirm-body"></div>
+      <div class="gw-modal-footer">
+        <button type="button" class="btn btn-default" id="gw-confirm-cancel">
+          {{ i18n.translate('confirm_cancel') }}
+        </button>
+        <button type="button" class="btn btn-primary" id="gw-confirm-ok">
+          {{ i18n.translate('confirm_ok') }}
+        </button>
+      </div>
+    </div>
+  </div>
+  <div id="gw-global-overlay" class="gw-overlay-global" hidden>
+    <div class="gw-overlay-panel">
+      <div class="gw-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+      <p class="gw-overlay-message"></p>
+      <div class="gw-progress-bar">
+        <span class="gw-progress-bar-fill"></span>
+      </div>
+    </div>
+  </div>
+  <h1>{{ title }}</h1>
+
+  <p>{{ i18n.translate('description') }}</p>
+
+  <div class="gw-pending-banner-slot">
+    <div id="pending-changes-banner" class="gw-pending-banner" aria-live="polite">
+      <div class="gw-pending-banner-main">
+        <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+        <span id="pending-banner-text"></span>
+      </div>
+      <div class="gw-pending-banner-actions">
+        <button type="button" class="btn btn-sm btn-default" id="pending-banner-cancel">
+          {{ i18n.translate('pending_banner_cancel') }}
+        </button>
+        <button type="button" class="btn btn-sm btn-success" id="pending-banner-apply">
+          {{ i18n.translate('pending_banner_apply') }}
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel panel-default filter-panel">
+    <div class="panel-heading">
+      <i class="fas fa-sliders-h" aria-hidden="true"></i>
+      {{ i18n.translate('filters_title') }}
+    </div>
+    <div class="panel-body">
+      <form id="filter-form" class="filter-form" method="get" action="{{ url_for('giswater_roles') }}">
+        <div class="form-group filter-field filter-search">
+          <label for="search">{{ i18n.translate('search') }}</label>
+          <div class="gw-search-field">
+            <i class="fas fa-search gw-search-icon" aria-hidden="true"></i>
+            <input type="text" class="form-control" id="search" name="search"
+              value="{{ search }}" placeholder="{{ i18n.translate('search_placeholder') }}">
+          </div>
+        </div>
+        <div class="form-group filter-field filter-role-tier">
+          <label for="schema_role">{{ i18n.translate('filter_by_schema_role') }}</label>
+          <select class="form-control" id="schema_role" name="schema_role">
+            <option value="">{{ i18n.translate('all_roles') }}</option>
+            {% for role in available_schema_roles %}
+            <option value="{{ role }}" {% if role == schema_role_filter %}selected{% endif %}>{{ role }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group filter-field filter-role-tier">
+          <label for="manager_role">{{ i18n.translate('filter_by_manager_role') }}</label>
+          <select class="form-control" id="manager_role" name="manager_role">
+            <option value="">{{ i18n.translate('all_roles') }}</option>
+            {% for role in available_manager_roles %}
+            <option value="{{ role }}" {% if role == manager_role_filter %}selected{% endif %}>{{ role }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group filter-field filter-role-tier">
+          <label for="giswater_role">{{ i18n.translate('filter_by_giswater_role') }}</label>
+          <select class="form-control" id="giswater_role" name="giswater_role">
+            <option value="">{{ i18n.translate('all_roles') }}</option>
+            {% for role in available_roles %}
+            <option value="{{ role }}" {% if role == giswater_role_filter %}selected{% endif %}>{{ role }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group filter-field filter-not-in-pg">
+          <label for="not_in_pg">
+            <input type="checkbox" id="not_in_pg" name="not_in_pg" value="1"
+              {% if not_in_pg_filter %}checked{% endif %}>
+            {{ i18n.translate('filter_not_in_pg') }}
+          </label>
+        </div>
+        <div class="form-group filter-field filter-per-page">
+          <label for="per_page">{{ i18n.translate('per_page') }}</label>
+          <select class="form-control" id="per_page" name="per_page">
+            <option value="10" {% if per_page == 10 %}selected{% endif %}>10</option>
+            <option value="25" {% if per_page == 25 %}selected{% endif %}>25</option>
+            <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+          </select>
+        </div>
+        <div class="filter-actions">
+          <button type="submit" class="btn btn-primary">
+            <i class="fas fa-filter"></i> {{ i18n.translate('filter') }}
+          </button>
+          <button type="button" class="btn btn-default" id="clear-filters">
+            <i class="fas fa-times"></i> {{ i18n.translate('clear_filters') }}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="gw-section-panel gw-section-synced">
+  <div class="gw-section-header" id="synced-users">
+    <div class="gw-section-header-text">
+      <i class="fas fa-users-cog gw-section-icon" aria-hidden="true"></i>
+      <div>
+        <h3 class="gw-section-title">
+          {{ i18n.translate('users_title') }}
+          <span class="gw-count-badge">{{ synced_pagination.total }}</span>
+        </h3>
+        <p class="gw-section-help">{{ i18n.translate('users_help') }}</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="table-toolbar synced-toolbar">
+    <button type="button" class="btn btn-primary gw-refresh-section" data-section="synced"
+      data-toggle="tooltip" title="{{ i18n.translate('tooltip_refresh') }}">
+      <i class="fas fa-sync"></i> {{ i18n.translate('refresh') }}
+    </button>
+    <form id="apply-pending-roles-form" class="form-inline toolbar-form" method="post"
+      action="{{ url_for('giswater_roles_apply_changes', **filter_params) }}"
+      data-confirm-header="{{ i18n.translate('pending_roles_confirm_header') }}"
+      data-change-line="{{ i18n.translate('pending_role_change_line') }}"
+      data-no-role="{{ i18n.translate('no_role') }}">
+      <input name="csrf_token" type="hidden" value="{{ csrf_token() }}">
+      <span id="pending-role-changes"></span>
+      <button type="submit" class="btn btn-success btn-apply-pending-roles"
+        data-toggle="tooltip" title="{{ i18n.translate('tooltip_apply_pending') }}">
+        <i class="fas fa-check"></i>
+        {{ i18n.translate('apply_pending_roles') }} (<span id="pending-roles-count">0</span>)
+      </button>
+      <button type="button" class="btn btn-default btn-cancel-pending-roles" id="cancel-pending-roles"
+        data-toggle="tooltip" title="{{ i18n.translate('tooltip_cancel_pending') }}">
+        <i class="fas fa-undo"></i>
+        {{ i18n.translate('cancel_pending_roles') }}
+      </button>
+    </form>
+  </div>
+
+  <div class="gw-section-wrap">
+    <div id="synced-section-content">
+      {% include 'plugins/giswater_roles/templates/_synced_table.html' %}
+    </div>
+    <div id="synced-section-overlay" class="gw-section-overlay" hidden>
+      <div class="gw-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+      <p class="gw-section-overlay-text"></p>
+    </div>
+  </div>
+  </div>
+
+{% endblock %}

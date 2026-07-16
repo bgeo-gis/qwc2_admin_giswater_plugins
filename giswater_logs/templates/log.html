@@ -1,13 +1,36 @@
 {% extends "templates/base.html" %}
 {%- block styles %}
 {{ super() }}
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<link href="https://cdn.jsdelivr.net/npm/jsoneditor@10/dist/jsoneditor.min.css" rel="stylesheet">
 <link href="{{ url_for('plugin_static', plugin='giswater_logs', filename='application.css') }}" rel="stylesheet">
 {%- endblock styles %}
 {% block title %}{{ title }}{% endblock %}
-{% block container %}
 {% block scripts %}
+{{ super() }}
+<script src="https://cdn.jsdelivr.net/npm/jsoneditor@10/dist/jsoneditor.min.js"></script>
 <script>
+    var jsonEditor = null;
+    var currentModalResponse = '';
+    var copyToastTimeout = null;
+
+    function showCopyToast() {
+        var toast = document.getElementById('copy-toast');
+        if (!toast) {
+            return;
+        }
+        toast.textContent = toast.getAttribute('data-message') || 'Copied';
+        toast.classList.add('is-visible');
+        clearTimeout(copyToastTimeout);
+        copyToastTimeout = setTimeout(function() {
+            toast.classList.remove('is-visible');
+        }, 1800);
+    }
+
     function copyToClipboard(text) {
+        if (!text) {
+            return;
+        }
         var div = document.createElement('div');
         div.innerHTML = text;
         var texto_desescapado = div.textContent || div.innerText || '';
@@ -22,70 +45,532 @@
         input.select();
         document.execCommand('copy');
         input.remove();
+        showCopyToast();
     }
 
-    function showFullJSON(jsonString) {
-        //jsonString = jsonString.replace(/'/g, "\\'");
-        console.log(jsonString.toString())
-        var win = window.open("", "JSON", "width=800,height=600");
+    function copyFromButton(button, event) {
+        if (event) {
+            event.stopPropagation();
+        }
+        copyToClipboard(button.getAttribute('data-execution') || '');
+    }
+
+    function formatResponseSize(text) {
+        var bytes = new Blob([text || '']).size;
+        if (bytes < 1024) {
+            return bytes + ' B';
+        }
+        if (bytes < 1024 * 1024) {
+            return (bytes / 1024).toFixed(1) + ' KB';
+        }
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function updateResponseSize() {
+        var sizeEl = document.getElementById('json-response-size');
+        if (!sizeEl) {
+            return;
+        }
+        var template = sizeEl.getAttribute('data-template') || '{size}';
+        sizeEl.textContent = template.replace('{size}', formatResponseSize(currentModalResponse));
+    }
+
+    function copyModalResponse(formatted) {
+        if (!currentModalResponse) {
+            return;
+        }
         try {
-            var json = JSON.parse(jsonString);
-            var formattedJson = JSON.stringify(json, null, 2);
-            win.document.body.innerHTML = "<pre>" + formattedJson + "</pre>";
+            var json = JSON.parse(currentModalResponse);
+            if (formatted) {
+                copyToClipboard(JSON.stringify(json, null, 2));
+            } else {
+                copyToClipboard(JSON.stringify(json));
+            }
         } catch (e) {
-            //escaped_text = jsonString.text()
-            win.document.body.innerHTML = "<pre>" + jsonString + "</pre>";
+            copyToClipboard(currentModalResponse);
         }
     }
+
+    function destroyJsonEditor() {
+        if (jsonEditor) {
+            jsonEditor.destroy();
+            jsonEditor = null;
+        }
+    }
+
+    function closeJsonModal() {
+        var modal = document.getElementById('json-modal');
+        if (!modal) {
+            return;
+        }
+        modal.classList.remove('is-open');
+        document.body.classList.remove('json-modal-open');
+        setModalExecutionContext('');
+        currentModalResponse = '';
+        destroyJsonEditor();
+    }
+
+    function truncateText(text, maxLength) {
+        if (!text || text.length <= maxLength) {
+            return text || '';
+        }
+        return text.substring(0, maxLength) + '...';
+    }
+
+    function setModalExecutionContext(execution) {
+        var executionEl = document.getElementById('json-modal-execution');
+        if (!executionEl) {
+            return;
+        }
+        executionEl.textContent = truncateText(execution, 140);
+        executionEl.setAttribute('data-execution', execution || '');
+        if (execution) {
+            executionEl.title = executionEl.getAttribute('data-copy-hint') || '';
+            executionEl.classList.add('is-copyable');
+        } else {
+            executionEl.removeAttribute('title');
+            executionEl.classList.remove('is-copyable');
+        }
+    }
+
+    function focusJsonSearch() {
+        var searchInput = document.querySelector(
+            '#json-editor-container .jsoneditor-search input, ' +
+            '#json-editor-container .jsoneditor-search textarea'
+        );
+        if (searchInput) {
+            searchInput.focus();
+            searchInput.select();
+        }
+    }
+
+    function openJsonModal(jsonString) {
+        var modal = document.getElementById('json-modal');
+        var container = document.getElementById('json-editor-container');
+        if (!modal || !container || typeof JSONEditor === 'undefined') {
+            window.open('about:blank', 'JSON', 'width=900,height=700');
+            return;
+        }
+
+        destroyJsonEditor();
+        container.innerHTML = '';
+
+        var options = {
+            mode: 'view',
+            mainMenuBar: true,
+            navigationBar: true,
+            search: true,
+            statusBar: false,
+            enableSort: false,
+            enableTransform: false
+        };
+
+        try {
+            var json = JSON.parse(jsonString);
+            jsonEditor = new JSONEditor(container, options);
+            jsonEditor.set(json);
+            setTimeout(function() {
+                if (jsonEditor && jsonEditor.expandAll) {
+                    jsonEditor.expandAll();
+                }
+            }, 0);
+        } catch (e) {
+            jsonEditor = new JSONEditor(container, {
+                mode: 'code',
+                mainMenuBar: true,
+                navigationBar: false,
+                statusBar: false,
+                onEditable: function() { return false; }
+            });
+            jsonEditor.setText(jsonString);
+        }
+
+        updateResponseSize();
+        modal.classList.add('is-open');
+        document.body.classList.add('json-modal-open');
+    }
+
+    function openResponseModal(response, execution) {
+        currentModalResponse = response || '';
+        setModalExecutionContext(execution || '');
+        openJsonModal(currentModalResponse);
+    }
+
+    function showResponseFromButton(button) {
+        openResponseModal(
+            button.getAttribute('data-response') || '',
+            button.getAttribute('data-execution') || ''
+        );
+    }
+
+    function showLoading() {
+        var overlay = document.getElementById('logs-loading');
+        if (overlay) {
+            overlay.classList.add('is-visible');
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', function() {
+        var modal = document.getElementById('json-modal');
+        var filterForm = document.getElementById('filter-form');
+        var clearFiltersBtn = document.getElementById('clear-filters');
+
+        if (filterForm) {
+            filterForm.querySelectorAll('select, input[type="date"]').forEach(function(field) {
+                field.addEventListener('change', function() {
+                    showLoading();
+                    filterForm.submit();
+                });
+            });
+        }
+
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', function() {
+                showLoading();
+                window.location.href = clearFiltersBtn.getAttribute('data-url');
+            });
+        }
+
+        var refreshForm = document.getElementById('refresh-form');
+        if (refreshForm) {
+            refreshForm.addEventListener('submit', function() {
+                showLoading();
+            });
+        }
+
+        if (!modal) {
+            return;
+        }
+
+        var expandBtn = document.getElementById('json-expand-all');
+        var collapseBtn = document.getElementById('json-collapse-all');
+        var backdrop = modal.querySelector('.json-modal-backdrop');
+        var closeButtons = modal.querySelectorAll('.json-modal-close-btn');
+
+        closeButtons.forEach(function(button) {
+            button.addEventListener('click', closeJsonModal);
+        });
+        if (backdrop) {
+            backdrop.addEventListener('click', closeJsonModal);
+        }
+        if (expandBtn) {
+            expandBtn.addEventListener('click', function() {
+                if (jsonEditor && jsonEditor.expandAll) {
+                    jsonEditor.expandAll();
+                }
+            });
+        }
+        if (collapseBtn) {
+            collapseBtn.addEventListener('click', function() {
+                if (jsonEditor && jsonEditor.collapseAll) {
+                    jsonEditor.collapseAll();
+                }
+            });
+        }
+
+        var executionEl = document.getElementById('json-modal-execution');
+        if (executionEl) {
+            executionEl.addEventListener('click', function() {
+                copyToClipboard(this.getAttribute('data-execution') || '');
+            });
+        }
+
+        var copyFormattedBtn = document.getElementById('json-copy-formatted');
+        if (copyFormattedBtn) {
+            copyFormattedBtn.addEventListener('click', function() {
+                copyModalResponse(true);
+            });
+        }
+
+        var copyMinifiedBtn = document.getElementById('json-copy-minified');
+        if (copyMinifiedBtn) {
+            copyMinifiedBtn.addEventListener('click', function() {
+                copyModalResponse(false);
+            });
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (!modal.classList.contains('is-open')) {
+                return;
+            }
+
+            if (event.key === 'Escape') {
+                closeJsonModal();
+                return;
+            }
+
+            if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'c') {
+                event.preventDefault();
+                copyModalResponse(true);
+                return;
+            }
+
+            if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'm') {
+                event.preventDefault();
+                copyModalResponse(false);
+                return;
+            }
+
+            if (event.ctrlKey && event.key.toLowerCase() === 'f') {
+                event.preventDefault();
+                focusJsonSearch();
+            }
+        });
+    });
 </script>
 {% endblock scripts %}
-<h3>{{title}}</h3>
-<form method="get" action="{{ url_for('giswater_logs') }}" class="form-inline align-left">
-    <div class="form-group">
-        <label for="filter-date">Filter by Date:</label>
-        <input type="date" class="form-control" name="date" id="filter-date" value="{{ date_selected }}">
+{% macro render_pagination(pagination, nav_filter_params, nav_page_url, nav_i18n) %}
+  {% if pagination.total_pages > 1 %}
+  <nav class="gw-pagination" aria-label="{{ nav_i18n.translate('pagination_label') }}">
+    {% if pagination.has_prev %}
+    <a class="gw-page-btn" href="{{ nav_page_url(nav_filter_params, pagination.page - 1) }}" title="{{ nav_i18n.translate('pagination_prev') }}">&laquo;</a>
+    {% else %}
+    <span class="gw-page-btn disabled">&laquo;</span>
+    {% endif %}
+    {% for page_num in range(1, pagination.total_pages + 1) %}
+      {% if page_num == pagination.page %}
+      <span class="gw-page-btn active">{{ page_num }}</span>
+      {% else %}
+      <a class="gw-page-btn" href="{{ nav_page_url(nav_filter_params, page_num) }}">{{ page_num }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+    <a class="gw-page-btn" href="{{ nav_page_url(nav_filter_params, pagination.page + 1) }}" title="{{ nav_i18n.translate('pagination_next') }}">&raquo;</a>
+    {% else %}
+    <span class="gw-page-btn disabled">&raquo;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+{% endmacro %}
+{% block container %}
+<div class="logs-page">
+  <div class="page-header">
+    <h1>Giswater service logs</h1>
+    <p class="text-muted">{{ i18n.translate('description') }}</p>
+  </div>
+
+  <div class="logs-toolbar">
+    <div class="panel panel-default filter-panel">
+      <div class="panel-body">
+        <form id="filter-form" method="get" action="{{ url_for('giswater_logs') }}" class="filter-form">
+          <div class="form-group filter-field filter-date">
+            <label for="filter-date"><i class="fas fa-calendar-day"></i> {{ i18n.translate('filter_by_date') }}</label>
+            <input type="date" class="form-control input-sm" name="date" id="filter-date" value="{{ date_selected }}">
+          </div>
+          <div class="form-group filter-field filter-user">
+            <label for="filter-user"><i class="fas fa-user"></i> {{ i18n.translate('filter_by_user') }}</label>
+            <select class="form-control input-sm" name="user" id="filter-user">
+              <option value="">{{ i18n.translate('all_users') }}</option>
+              {% for user in available_users %}
+              <option value="{{ user }}" {% if user == user_filter %}selected{% endif %}>{{ user }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group filter-field filter-service">
+            <label for="filter-service"><i class="fas fa-cog"></i> {{ i18n.translate('filter_by_service') }}</label>
+            <select class="form-control input-sm" name="service" id="filter-service">
+              <option value="">{{ i18n.translate('all_services') }}</option>
+              {% for service in available_services %}
+              <option value="{{ service }}" {% if service == service_filter %}selected{% endif %}>{{ service }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group filter-field filter-hour">
+            <label for="filter-hour"><i class="fas fa-clock"></i> {{ i18n.translate('filter_by_hour') }}</label>
+            <select class="form-control input-sm" name="hour" id="filter-hour">
+              <option value="">{{ i18n.translate('all_hours') }}</option>
+              {% for hour in available_hours %}
+              <option value="{{ hour }}" {% if hour == hour_filter %}selected{% endif %}>{{ hour }}:00</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group filter-field filter-level">
+            <label for="filter-level"><i class="fas fa-signal"></i> {{ i18n.translate('filter_by_level') }}</label>
+            <select class="form-control input-sm" name="level" id="filter-level">
+              <option value="">{{ i18n.translate('all_levels') }}</option>
+              {% for level in available_levels %}
+              <option value="{{ level }}" {% if level == level_filter %}selected{% endif %}>{{ level }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group filter-field filter-per-page">
+            <label for="per_page"><i class="fas fa-list-ol"></i> {{ i18n.translate('per_page') }}</label>
+            <select class="form-control input-sm" name="per_page" id="per_page">
+              <option value="20" {% if per_page == 20 %}selected{% endif %}>20</option>
+              <option value="50" {% if per_page == 50 %}selected{% endif %}>50</option>
+              <option value="100" {% if per_page == 100 %}selected{% endif %}>100</option>
+            </select>
+          </div>
+          <div class="filter-actions">
+            <button type="button" class="btn btn-default btn-sm" id="clear-filters"
+              data-url="{{ url_for('giswater_logs') }}">
+              <i class="fas fa-times"></i> {{ i18n.translate('clear_filters') }}
+            </button>
+            <button type="submit" form="refresh-form" class="btn btn-success btn-sm btn-refresh">
+              <i class="fas fa-sync"></i> {{ i18n.translate('refresh_logs') }}
+            </button>
+          </div>
+        </form>
+        <form id="refresh-form" method="post" action="{{ url_for('giswater_logs') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="refresh" value="true">
+        </form>
       </div>
-      <button type="submit" class="btn btn-primary">Filter</button>
-</form>
-<form class="align-right" method="post" action="{{url_for('giswater_logs')}}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <button type="submit" name="refresh" value="true">Refresh Logs</button>
-</form>
-<table class="table table-striped">
-    <tr class="table-active">
-        <th>Timestamp</th>
-        <th>User</th>
-        <th>Service</th>
-        <th>Execution (click to copy)</th>
-        <th>Response</th>
-    </tr>
-    {% for log in log_contents %}
-    <tr>
-        <td class='{{ log.level }}'>{{ log.timestamp }}</td>
-        <td>{{ log.user }}</td>
-        <td>{{ log.service }}</td>
+    </div>
+  </div>
 
-        <td >
-            <a id="serverExecution" href="#" onclick="copyToClipboard('{{ log.execution_msg_full.strip() }}');" role="button" class="btn btn-default copy" title="Copy to clipboard">{{ log.execution_msg }}{%
-                if log.execution_msg|length >= 80 %}...{% endif %}</a>
-        </td>
-       
-        <td class="text-center">
-            <a href="#" onclick="showFullJSON('{{ log.response_msg_full.strip() }}')" class="btn btn-primary">&#128065;</a>
-        </td>
+  <div class="level-stats">
+    <span class="level-stat level-stat-info">
+      <i class="fas fa-info-circle"></i> INFO {{ level_counts.INFO }}
+    </span>
+    <span class="level-stat level-stat-warning">
+      <i class="fas fa-exclamation-triangle"></i> WARNING {{ level_counts.WARNING }}
+    </span>
+    <span class="level-stat level-stat-error">
+      <i class="fas fa-times-circle"></i> ERROR {{ level_counts.ERROR }}
+    </span>
+  </div>
 
-    </tr>
-{% endfor %}
-</table>
-<div>
-    <ul class="pagination">
-        {% for page in range(1, num_pages + 1) %}
-        {% if page == current_page %}
-        <li class="active"><a href="#">{{ page }}</a></li>
-        {% else %}
-        <li><a href="?page={{ page }}">{{ page }}</a></li>
-        {% endif %}
+  <div class="logs-table-wrapper" id="logs-table-wrapper">
+    <div id="logs-loading" class="logs-loading" aria-hidden="true">
+      <div class="logs-loading-spinner"></div>
+      <span>{{ i18n.translate('loading') }}</span>
+    </div>
+    {% if total_filtered > 0 %}
+    <table class="table table-striped table-hover logs-table gw-data-table">
+      <thead>
+        <tr>
+          <th class="gw-th col-level">
+            <span class="gw-th-content">
+              <i class="fas fa-signal gw-th-icon" aria-hidden="true"></i>
+              <span>{{ i18n.translate('level') }}</span>
+            </span>
+          </th>
+          <th class="gw-th col-timestamp">
+            <span class="gw-th-content">
+              <i class="fas fa-clock gw-th-icon" aria-hidden="true"></i>
+              <span>{{ i18n.translate('timestamp') }}</span>
+            </span>
+          </th>
+          <th class="gw-th col-user">
+            <span class="gw-th-content">
+              <i class="fas fa-user gw-th-icon" aria-hidden="true"></i>
+              <span>{{ i18n.translate('user') }}</span>
+            </span>
+          </th>
+          <th class="gw-th col-service">
+            <span class="gw-th-content">
+              <i class="fas fa-cog gw-th-icon" aria-hidden="true"></i>
+              <span>{{ i18n.translate('service') }}</span>
+            </span>
+          </th>
+          <th class="gw-th col-execution">
+            <span class="gw-th-content">
+              <i class="fas fa-terminal gw-th-icon" aria-hidden="true"></i>
+              <span>{{ i18n.translate('execution') }}</span>
+            </span>
+          </th>
+          <th class="gw-th col-response text-right">
+            <span class="gw-th-content">
+              <i class="fas fa-eye gw-th-icon" aria-hidden="true"></i>
+              <span>{{ i18n.translate('response') }}</span>
+            </span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in log_contents %}
+        <tr class="log-row log-row-{{ log.level|lower }}">
+          <td class="col-level">
+            <span class="level-badge level-{{ log.level }}">{{ log.level }}</span>
+          </td>
+          <td class="col-timestamp">
+            <span class="timestamp-text">{{ log.timestamp }}</span>
+          </td>
+          <td class="col-user">{{ log.user }}</td>
+          <td class="col-service">
+            <span class="service-badge">{{ log.service }}</span>
+          </td>
+          <td class="col-execution">
+            <button type="button"
+              class="btn-copy"
+              data-execution="{{ log.execution_msg_full|e }}"
+              onclick="copyFromButton(this, event)"
+              title="{{ log.execution_msg_full }}">
+              <code class="execution-code">{{ log.execution_msg }}{% if log.execution_msg|length >= 80 %}...{% endif %}</code>
+            </button>
+          </td>
+          <td class="col-response text-right">
+            <button type="button"
+              class="btn-view-response"
+              data-response="{{ log.response_msg_full|e }}"
+              data-execution="{{ log.execution_msg_full|e }}"
+              onclick="showResponseFromButton(this)"
+              title="{{ i18n.translate('view_response') }}">
+              <span class="btn-response-icon" aria-hidden="true">&#128065;</span>
+              <span class="btn-response-text">{{ i18n.translate('view') }}</span>
+            </button>
+          </td>
+        </tr>
         {% endfor %}
-    </ul>
+      </tbody>
+    </table>
+    {% else %}
+    <div class="logs-empty alert alert-info" role="alert">
+      <i class="fas fa-info-circle"></i> {{ i18n.translate('no_logs_matching_filter') }}
+    </div>
+    {% endif %}
+  </div>
+
+  {% if pagination.total > 0 %}
+  <div class="pagination-bar">
+    <p class="pagination-info">
+      {{ i18n.translate('pagination_info', start=pagination.start, end=pagination.end, total=pagination.total) }}
+    </p>
+    {{ render_pagination(pagination, filter_params, page_url, i18n) }}
+  </div>
+  {% endif %}
 </div>
+
+<div id="json-modal" class="json-modal" aria-hidden="true">
+  <div class="json-modal-backdrop"></div>
+  <div class="json-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="json-modal-title">
+    <div class="json-modal-header">
+      <div class="json-modal-header-main">
+        <h4 id="json-modal-title">{{ i18n.translate('response') }}</h4>
+        <code id="json-modal-execution" class="json-modal-execution"
+          data-copy-hint="{{ i18n.translate('copy_to_clipboard') }}"></code>
+      </div>
+      <div class="json-modal-actions">
+        <button type="button" id="json-expand-all" class="btn btn-default btn-sm">
+          <i class="fas fa-expand-alt"></i> {{ i18n.translate('expand_all') }}
+        </button>
+        <button type="button" id="json-collapse-all" class="btn btn-default btn-sm">
+          <i class="fas fa-compress-alt"></i> {{ i18n.translate('collapse_all') }}
+        </button>
+        <button type="button" class="btn btn-sm json-modal-close-btn">
+          <i class="fas fa-times"></i> {{ i18n.translate('close') }}
+        </button>
+      </div>
+    </div>
+    <div id="json-editor-container" class="json-editor-container"></div>
+    <div class="json-modal-footer">
+      <div class="json-modal-footer-left">
+        <span id="json-response-size" class="json-response-size"
+          data-template="{{ i18n.translate('response_size') }}"></span>
+        <span class="json-shortcuts-hint">{{ i18n.translate('shortcuts_hint') }}</span>
+      </div>
+      <div class="json-modal-footer-actions">
+        <button type="button" id="json-copy-formatted" class="btn btn-primary btn-copy-response">
+          <i class="fas fa-copy"></i> {{ i18n.translate('copy_response_formatted') }}
+        </button>
+        <button type="button" id="json-copy-minified" class="btn btn-default btn-copy-response">
+          <i class="fas fa-compress"></i> {{ i18n.translate('copy_response_minified') }}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="copy-toast" class="copy-toast" data-message="{{ i18n.translate('copied') }}" aria-live="polite"></div>
 {% endblock %}

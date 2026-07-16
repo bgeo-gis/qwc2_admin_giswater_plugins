@@ -1,0 +1,40 @@
+{% macro render_th(icon, label, extra_class='') %}
+<th class="gw-th {{ extra_class }}">
+  <span class="gw-th-content">
+    {% if icon %}
+    <i class="fas {{ icon }} gw-th-icon" aria-hidden="true"></i>
+    {% endif %}
+    <span>{{ label }}</span>
+  </span>
+</th>
+{% endmacro %}
+
+{% macro render_pagination(pagination, page_param, nav_filter_params, nav_page_url, nav_i18n) %}
+  {% set section = 'synced' %}
+  {% if pagination.total_pages > 1 %}
+  <nav class="gw-pagination" aria-label="Pagination" data-section="{{ section }}">
+    {% if pagination.has_prev %}
+    <a class="gw-page-btn gw-page-link" href="{{ nav_page_url(nav_filter_params, page_param, pagination.page - 1) }}"
+      data-section="{{ section }}" data-page="{{ pagination.page - 1 }}"
+      title="{{ nav_i18n.translate('pagination_prev') }}">&laquo;</a>
+    {% else %}
+    <span class="gw-page-btn disabled">&laquo;</span>
+    {% endif %}
+    {% for page_num in range(1, pagination.total_pages + 1) %}
+      {% if page_num == pagination.page %}
+      <span class="gw-page-btn active">{{ page_num }}</span>
+      {% else %}
+      <a class="gw-page-btn gw-page-link" href="{{ nav_page_url(nav_filter_params, page_param, page_num) }}"
+        data-section="{{ section }}" data-page="{{ page_num }}">{{ page_num }}</a>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.has_next %}
+    <a class="gw-page-btn gw-page-link" href="{{ nav_page_url(nav_filter_params, page_param, pagination.page + 1) }}"
+      data-section="{{ section }}" data-page="{{ pagination.page + 1 }}"
+      title="{{ nav_i18n.translate('pagination_next') }}">&raquo;</a>
+    {% else %}
+    <span class="gw-page-btn disabled">&raquo;</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+{% endmacro %}

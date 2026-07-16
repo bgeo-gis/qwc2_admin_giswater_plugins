@@ -1,0 +1,245 @@
+{% from 'plugins/giswater_roles/templates/_macros.html' import render_pagination, render_th %}
+<div class="gw-table-partial" data-total="{{ synced_pagination.total }}">
+{% if synced_pagination.total > 0 %}
+<div class="gw-table-card">
+  <form id="bulk-role-form" method="post"
+    action="{{ url_for('giswater_roles_set_roles_bulk', **filter_params) }}"
+    data-confirm-header="{{ i18n.translate('bulk_roles_confirm_header') }}"
+    data-no-role="{{ i18n.translate('no_role') }}">
+    <input name="csrf_token" type="hidden" value="{{ csrf_token() }}">
+    <span id="bulk-role-usernames"></span>
+    <input type="hidden" id="bulk-schema-roles" name="schema_roles" value="">
+    <table class="gw-bulk-role-table">
+      <colgroup>
+        <col class="gw-col-check">
+        <col>
+        <col>
+        <col class="gw-col-role">
+        <col class="gw-col-role">
+        <col class="gw-col-role">
+        <col class="gw-col-actions">
+      </colgroup>
+      <tbody>
+        <tr>
+          <td class="gw-td-check"></td>
+          <td></td>
+          <td></td>
+          <td class="gw-td-role">
+            <div class="gw-role-cell">
+              <div class="gw-bulk-schema-multi-select gw-schema-multi-select">
+                <button type="button" class="form-control input-sm gw-multi-select-toggle">
+                  <span class="gw-multi-select-label">{{ i18n.translate('no_role') }}</span>
+                </button>
+                <div class="gw-multi-select-panel">
+                  {% for role in available_schema_roles %}
+                  <label class="gw-multi-select-option">
+                    <input type="checkbox" class="gw-bulk-schema-role-checkbox" value="{{ role }}">
+                    {{ role }}
+                  </label>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+          </td>
+          <td class="gw-td-role">
+            <div class="gw-role-cell">
+              <select class="form-control input-sm user-manager-role-select"
+                id="bulk-manager-role-select" name="manager_role">
+                <option value="">{{ i18n.translate('no_role') }}</option>
+                {% for role in available_manager_roles %}
+                <option value="{{ role }}">{{ role }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </td>
+          <td class="gw-td-role">
+            <div class="gw-role-cell">
+              <select class="form-control input-sm user-role-select"
+                id="bulk-giswater-role-select" name="role">
+                <option value="">{{ i18n.translate('no_role') }}</option>
+                {% for role in available_roles %}
+                <option value="{{ role }}">{{ role }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </td>
+          <td class="text-right gw-td-actions">
+            <button type="submit" class="btn btn-warning btn-sm btn-apply-role-bulk"
+              data-toggle="tooltip" title="{{ i18n.translate('tooltip_apply_role_bulk') }}">
+              <i class="fas fa-user-cog"></i>
+              {{ i18n.translate('apply_role_bulk') }} (<span id="bulk-role-count">0</span>)
+            </button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </form>
+  <table class="table table-striped table-hover gw-data-table">
+    <colgroup>
+      <col class="gw-col-check">
+      <col>
+      <col>
+      <col class="gw-col-role">
+      <col class="gw-col-role">
+      <col class="gw-col-role">
+      <col class="gw-col-actions">
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="gw-th gw-th-check">
+          <input type="checkbox" id="select-all-synced"
+            title="{{ i18n.translate('select_all') }}">
+        </th>
+        {{ render_th('fa-user', i18n.translate('username')) }}
+        {{ render_th('fa-link', i18n.translate('sync_status')) }}
+        {{ render_th('fa-table', i18n.translate('schema_role')) }}
+        {{ render_th('fa-user-tie', i18n.translate('manager_role')) }}
+        {{ render_th('fa-user-shield', i18n.translate('giswater_role')) }}
+        {{ render_th('fa-bolt', i18n.translate('actions'), 'text-right') }}
+      </tr>
+    </thead>
+    <tbody>
+      {% for user in users %}
+      {% set pending_create = user.can_create_in_pg and not user.can_manage_roles %}
+      <tr{% if pending_create %} class="gw-row-pending-pg"{% endif %}>
+        <td class="gw-td-check">
+          <input type="checkbox" class="user-checkbox" value="{{ user.name }}"
+            data-username="{{ user.name }}"
+            {% if not user.can_manage_roles and not user.can_create_in_pg %}data-no-roles="1"{% endif %}>
+        </td>
+        <td>
+          <span class="gw-user-cell">
+            <i class="fas fa-user gw-cell-icon" aria-hidden="true"></i>
+            <strong>{{ user.name }}</strong>
+          </span>
+        </td>
+        <td>
+          <span class="gw-sync-status">
+            <span class="gw-sync-badge {% if user['has_qwc'] %}gw-sync-yes{% else %}gw-sync-no{% endif %}"
+              title="{{ i18n.translate('sync_in_qwc') }}">QWC</span>
+            <span class="gw-sync-badge {% if user['has_pg'] %}gw-sync-yes{% else %}gw-sync-no{% endif %}"
+              title="{{ i18n.translate('sync_in_pg') }}">PG</span>
+          </span>
+        </td>
+        <td class="gw-td-role">
+          {% if user.can_manage_roles or user.can_create_in_pg %}
+          <div class="gw-role-cell{% if pending_create %} gw-role-cell-pending{% endif %}">
+            <div class="gw-schema-multi-select{% if pending_create %} create-pg-tier-select gw-role-select-pending{% endif %}"
+              data-tier="schema"
+              data-username="{{ user.name }}"
+              data-original="{{ user.current_schema_roles|join(',') if user.can_manage_roles else '' }}"
+              data-no-role="{{ i18n.translate('no_role') }}">
+              <button type="button" class="form-control input-sm gw-multi-select-toggle">
+                <span class="gw-multi-select-label">{{ i18n.translate('no_role') }}</span>
+              </button>
+              <div class="gw-multi-select-panel">
+                {% for role in available_schema_roles %}
+                <label class="gw-multi-select-option">
+                  <input type="checkbox" class="gw-schema-role-checkbox" value="{{ role }}"
+                    {% if role in user.current_schema_roles %}checked{% endif %}>
+                  {{ role }}
+                </label>
+                {% endfor %}
+              </div>
+            </div>
+          </div>
+          {% else %}
+          <span class="gw-empty-value">—</span>
+          {% endif %}
+        </td>
+        <td class="gw-td-role">
+          {% if user.can_manage_roles or user.can_create_in_pg %}
+          <div class="gw-role-cell{% if pending_create %} gw-role-cell-pending{% endif %}">
+            <select class="form-control input-sm user-manager-role-select{% if pending_create %} create-pg-tier-select gw-role-select-pending{% else %} user-tier-role-select{% endif %}"
+              data-tier="manager"
+              data-username="{{ user.name }}"
+              data-original="{{ user.current_manager_role if user.can_manage_roles else '' }}">
+              <option value="">{{ i18n.translate('no_role') }}</option>
+              {% for role in available_manager_roles %}
+              <option value="{{ role }}" {% if role == user.current_manager_role %}selected{% endif %}>
+                {{ role }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          {% else %}
+          <span class="gw-empty-value">—</span>
+          {% endif %}
+        </td>
+        <td class="gw-td-role">
+          {% if user.can_manage_roles or user.can_create_in_pg %}
+          <div class="gw-role-cell{% if pending_create %} gw-role-cell-pending{% endif %}">
+            <select class="form-control input-sm user-role-select{% if pending_create %} create-pg-tier-select gw-role-select-pending{% else %} user-tier-role-select{% endif %}"
+              data-tier="giswater"
+              data-username="{{ user.name }}"
+              data-original="{{ user.current_role if user.can_manage_roles else '' }}"
+              {% if not available_roles %}disabled title="{{ i18n.translate('no_tier_roles_in_db') }}"{% endif %}>
+              <option value="">{{ i18n.translate('no_role') }}</option>
+              {% for role in available_roles %}
+              <option value="{{ role }}" {% if role == user.current_role %}selected{% endif %}>
+                {{ role }}
+              </option>
+              {% endfor %}
+            </select>
+          </div>
+          {% else %}
+          <span class="gw-empty-value">—</span>
+          {% endif %}
+        </td>
+        <td class="text-right gw-td-actions">
+          <div class="gw-action-buttons">
+            {% if user.can_create_in_pg %}
+            <form class="form-inline create-pg-form gw-inline-action-form" method="post"
+              action="{{ url_for('giswater_roles_create_pg_user') }}"
+              data-confirm="{{ i18n.translate('create_pg_confirm') }}"
+              data-no-role="{{ i18n.translate('no_role') }}">
+              <input name="csrf_token" type="hidden" value="{{ csrf_token() }}">
+              <input name="username" type="hidden" value="{{ user.name }}">
+              <button type="submit" class="btn btn-sm btn-primary"
+                data-toggle="tooltip" title="{{ i18n.translate('tooltip_create_in_pg') }}">
+                <i class="fas fa-database"></i> {{ i18n.translate('create_in_pg') }}
+              </button>
+            </form>
+            {% elif user.can_delete_from_pg %}
+            <form class="form-inline delete-pg-form gw-inline-action-form" method="post"
+              action="{{ url_for('giswater_roles_delete_pg_user') }}"
+              data-confirm="{{ i18n.translate('delete_pg_confirm') }}"
+              data-has-qwc="{{ '1' if user['has_qwc'] else '0' }}"
+              data-qwc-warning="{{ i18n.translate('delete_pg_qwc_warning') }}">
+              <input name="csrf_token" type="hidden" value="{{ csrf_token() }}">
+              <input name="username" type="hidden" value="{{ user.name }}">
+              <button type="submit" class="btn btn-sm btn-danger"
+                data-toggle="tooltip" title="{{ i18n.translate('tooltip_delete_from_pg') }}">
+                <i class="fas fa-trash"></i> {{ i18n.translate('delete_from_pg') }}
+              </button>
+            </form>
+            {% endif %}
+            {% if not user.can_create_in_pg and not user.can_delete_from_pg %}
+            <span class="gw-empty-value">—</span>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+<div class="pagination-bar">
+  <p class="pagination-info">
+    <i class="fas fa-list-ol" aria-hidden="true"></i>
+    {{ i18n.translate('pagination_info', start=synced_pagination.start, end=synced_pagination.end, total=synced_pagination.total) }}
+  </p>
+  {{ render_pagination(synced_pagination, 'synced_page', filter_params, page_url, i18n) }}
+</div>
+{% elif search or schema_role_filter or manager_role_filter or giswater_role_filter or not_in_pg_filter %}
+<div class="alert alert-info gw-empty-alert" role="alert">
+  <i class="fas fa-info-circle" aria-hidden="true"></i>
+  {{ i18n.translate('no_users_matching_filter') }}
+</div>
+{% else %}
+<div class="alert alert-info gw-empty-alert" role="alert">
+  <i class="fas fa-info-circle" aria-hidden="true"></i>
+  {{ i18n.translate('no_users') }}
+</div>
+{% endif %}
+</div>
