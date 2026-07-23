@@ -2,21 +2,24 @@
 <div class="gw-table-partial" data-total="{{ synced_pagination.total }}">
 {% if synced_pagination.total > 0 %}
 <div class="gw-table-card">
+  {% if has_role_tiers %}
   <form id="bulk-role-form" method="post"
     action="{{ url_for('giswater_roles_set_roles_bulk', **filter_params) }}"
     data-confirm-header="{{ i18n.translate('bulk_roles_confirm_header') }}"
     data-no-role="{{ i18n.translate('no_role') }}">
     <input name="csrf_token" type="hidden" value="{{ csrf_token() }}">
     <span id="bulk-role-usernames"></span>
+    {% if show_schema_roles %}
     <input type="hidden" id="bulk-schema-roles" name="schema_roles" value="">
+    {% endif %}
     <table class="gw-bulk-role-table">
       <colgroup>
         <col class="gw-col-check">
         <col>
         <col>
-        <col class="gw-col-role">
-        <col class="gw-col-role">
-        <col class="gw-col-role">
+        {% if show_schema_roles %}<col class="gw-col-role">{% endif %}
+        {% if show_manager_roles %}<col class="gw-col-role">{% endif %}
+        {% if show_giswater_roles %}<col class="gw-col-role">{% endif %}
         <col class="gw-col-actions">
       </colgroup>
       <tbody>
@@ -24,6 +27,7 @@
           <td class="gw-td-check"></td>
           <td></td>
           <td></td>
+          {% if show_schema_roles %}
           <td class="gw-td-role">
             <div class="gw-role-cell">
               <div class="gw-bulk-schema-multi-select gw-schema-multi-select">
@@ -41,6 +45,8 @@
               </div>
             </div>
           </td>
+          {% endif %}
+          {% if show_manager_roles %}
           <td class="gw-td-role">
             <div class="gw-role-cell">
               <select class="form-control input-sm user-manager-role-select"
@@ -52,6 +58,8 @@
               </select>
             </div>
           </td>
+          {% endif %}
+          {% if show_giswater_roles %}
           <td class="gw-td-role">
             <div class="gw-role-cell">
               <select class="form-control input-sm user-role-select"
@@ -63,6 +71,7 @@
               </select>
             </div>
           </td>
+          {% endif %}
           <td class="text-right gw-td-actions">
             <button type="submit" class="btn btn-warning btn-sm btn-apply-role-bulk"
               data-toggle="tooltip" title="{{ i18n.translate('tooltip_apply_role_bulk') }}">
@@ -74,14 +83,15 @@
       </tbody>
     </table>
   </form>
+  {% endif %}
   <table class="table table-striped table-hover gw-data-table">
     <colgroup>
       <col class="gw-col-check">
       <col>
       <col>
-      <col class="gw-col-role">
-      <col class="gw-col-role">
-      <col class="gw-col-role">
+      {% if show_schema_roles %}<col class="gw-col-role">{% endif %}
+      {% if show_manager_roles %}<col class="gw-col-role">{% endif %}
+      {% if show_giswater_roles %}<col class="gw-col-role">{% endif %}
       <col class="gw-col-actions">
     </colgroup>
     <thead>
@@ -92,9 +102,15 @@
         </th>
         {{ render_th('fa-user', i18n.translate('username')) }}
         {{ render_th('fa-link', i18n.translate('sync_status')) }}
+        {% if show_schema_roles %}
         {{ render_th('fa-table', i18n.translate('schema_role')) }}
+        {% endif %}
+        {% if show_manager_roles %}
         {{ render_th('fa-user-tie', i18n.translate('manager_role')) }}
+        {% endif %}
+        {% if show_giswater_roles %}
         {{ render_th('fa-user-shield', i18n.translate('giswater_role')) }}
+        {% endif %}
         {{ render_th('fa-bolt', i18n.translate('actions'), 'text-right') }}
       </tr>
     </thead>
@@ -105,7 +121,7 @@
         <td class="gw-td-check">
           <input type="checkbox" class="user-checkbox" value="{{ user.name }}"
             data-username="{{ user.name }}"
-            {% if not user.can_manage_roles and not user.can_create_in_pg %}data-no-roles="1"{% endif %}>
+            {% if not has_role_tiers or (not user.can_manage_roles and not user.can_create_in_pg) %}data-no-roles="1"{% endif %}>
         </td>
         <td>
           <span class="gw-user-cell">
@@ -121,6 +137,7 @@
               title="{{ i18n.translate('sync_in_pg') }}">PG</span>
           </span>
         </td>
+        {% if show_schema_roles %}
         <td class="gw-td-role">
           {% if user.can_manage_roles or user.can_create_in_pg %}
           <div class="gw-role-cell{% if pending_create %} gw-role-cell-pending{% endif %}">
@@ -147,6 +164,8 @@
           <span class="gw-empty-value">—</span>
           {% endif %}
         </td>
+        {% endif %}
+        {% if show_manager_roles %}
         <td class="gw-td-role">
           {% if user.can_manage_roles or user.can_create_in_pg %}
           <div class="gw-role-cell{% if pending_create %} gw-role-cell-pending{% endif %}">
@@ -166,6 +185,8 @@
           <span class="gw-empty-value">—</span>
           {% endif %}
         </td>
+        {% endif %}
+        {% if show_giswater_roles %}
         <td class="gw-td-role">
           {% if user.can_manage_roles or user.can_create_in_pg %}
           <div class="gw-role-cell{% if pending_create %} gw-role-cell-pending{% endif %}">
@@ -186,6 +207,7 @@
           <span class="gw-empty-value">—</span>
           {% endif %}
         </td>
+        {% endif %}
         <td class="text-right gw-td-actions">
           <div class="gw-action-buttons">
             {% if user.can_create_in_pg %}
@@ -231,7 +253,7 @@
   </p>
   {{ render_pagination(synced_pagination, 'synced_page', filter_params, page_url, i18n) }}
 </div>
-{% elif search or schema_role_filter or manager_role_filter or giswater_role_filter or not_in_pg_filter %}
+{% elif search or (show_schema_roles and schema_role_filter) or (show_manager_roles and manager_role_filter) or (show_giswater_roles and giswater_role_filter) or not_in_pg_filter %}
 <div class="alert alert-info gw-empty-alert" role="alert">
   <i class="fas fa-info-circle" aria-hidden="true"></i>
   {{ i18n.translate('no_users_matching_filter') }}

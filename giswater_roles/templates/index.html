@@ -745,6 +745,10 @@
       "schemaRolesSelectedLabel": {{ i18n.translate('schema_roles_selected')|tojson }},
       "managerRoleLabel": {{ i18n.translate('manager_role')|tojson }},
       "giswaterRoleLabel": {{ i18n.translate('giswater_role')|tojson }},
+      "showSchemaRoles": {{ show_schema_roles|tojson }},
+      "showManagerRoles": {{ show_manager_roles|tojson }},
+      "showGiswaterRoles": {{ show_giswater_roles|tojson }},
+      "hasRoleTiers": {{ has_role_tiers|tojson }},
       "urls": {
         "applyChanges": {{ url_for('giswater_roles_apply_changes')|tojson }},
         "bulkRoles": {{ url_for('giswater_roles_set_roles_bulk')|tojson }}
@@ -813,6 +817,7 @@
               value="{{ search }}" placeholder="{{ i18n.translate('search_placeholder') }}">
           </div>
         </div>
+        {% if show_schema_roles %}
         <div class="form-group filter-field filter-role-tier">
           <label for="schema_role">{{ i18n.translate('filter_by_schema_role') }}</label>
           <select class="form-control" id="schema_role" name="schema_role">
@@ -822,6 +827,8 @@
             {% endfor %}
           </select>
         </div>
+        {% endif %}
+        {% if show_manager_roles %}
         <div class="form-group filter-field filter-role-tier">
           <label for="manager_role">{{ i18n.translate('filter_by_manager_role') }}</label>
           <select class="form-control" id="manager_role" name="manager_role">
@@ -831,6 +838,8 @@
             {% endfor %}
           </select>
         </div>
+        {% endif %}
+        {% if show_giswater_roles %}
         <div class="form-group filter-field filter-role-tier">
           <label for="giswater_role">{{ i18n.translate('filter_by_giswater_role') }}</label>
           <select class="form-control" id="giswater_role" name="giswater_role">
@@ -840,6 +849,7 @@
             {% endfor %}
           </select>
         </div>
+        {% endif %}
         <div class="form-group filter-field filter-not-in-pg">
           <label for="not_in_pg">
             <input type="checkbox" id="not_in_pg" name="not_in_pg" value="1"
@@ -886,6 +896,7 @@
       data-toggle="tooltip" title="{{ i18n.translate('tooltip_refresh') }}">
       <i class="fas fa-sync"></i> {{ i18n.translate('refresh') }}
     </button>
+    {% if has_role_tiers %}
     <form id="apply-pending-roles-form" class="form-inline toolbar-form" method="post"
       action="{{ url_for('giswater_roles_apply_changes', **filter_params) }}"
       data-confirm-header="{{ i18n.translate('pending_roles_confirm_header') }}"
@@ -904,6 +915,7 @@
         {{ i18n.translate('cancel_pending_roles') }}
       </button>
     </form>
+    {% endif %}
   </div>
 
   <div class="gw-section-wrap">

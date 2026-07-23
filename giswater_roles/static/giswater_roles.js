@@ -128,6 +128,19 @@
       return value || noRoleLabel;
     }
 
+    function tierEnabled(tier) {
+      if (tier === 'schema') {
+        return !!config.showSchemaRoles;
+      }
+      if (tier === 'manager') {
+        return !!config.showManagerRoles;
+      }
+      if (tier === 'giswater') {
+        return !!config.showGiswaterRoles;
+      }
+      return false;
+    }
+
     function readUrlPageParams() {
       var params = new URLSearchParams(window.location.search);
       return {
@@ -152,13 +165,13 @@
       if (search) {
         params.set('search', search);
       }
-      if (schemaRole) {
+      if (tierEnabled('schema') && schemaRole) {
         params.set('schema_role', schemaRole);
       }
-      if (managerRole) {
+      if (tierEnabled('manager') && managerRole) {
         params.set('manager_role', managerRole);
       }
-      if (giswaterRole) {
+      if (tierEnabled('giswater') && giswaterRole) {
         params.set('giswater_role', giswaterRole);
       }
       if (notInPg) {
@@ -325,9 +338,16 @@
     }
 
     function roleStatesEqual(a, b) {
-      return schemaRolesEqual(a.schema, b.schema)
-        && a.manager === b.manager
-        && a.giswater === b.giswater;
+      if (tierEnabled('schema') && !schemaRolesEqual(a.schema, b.schema)) {
+        return false;
+      }
+      if (tierEnabled('manager') && a.manager !== b.manager) {
+        return false;
+      }
+      if (tierEnabled('giswater') && a.giswater !== b.giswater) {
+        return false;
+      }
+      return true;
     }
 
     function restorePendingToVisibleSelects() {
@@ -414,26 +434,32 @@
         var item = store[username];
         var original = item.original || emptyRoleState();
         var roles = item.roles || emptyRoleState();
-        var segments = [
-          formatRoleChangeSegment(
+        var segments = [];
+        if (tierEnabled('schema')) {
+          segments.push(formatRoleChangeSegment(
             config.schemaRoleLabel || 'Schema',
             original.schema,
             roles.schema,
             noRoleLabel
-          ),
-          formatRoleChangeSegment(
+          ));
+        }
+        if (tierEnabled('manager')) {
+          segments.push(formatRoleChangeSegment(
             config.managerRoleLabel || 'Manager',
             original.manager,
             roles.manager,
             noRoleLabel
-          ),
-          formatRoleChangeSegment(
+          ));
+        }
+        if (tierEnabled('giswater')) {
+          segments.push(formatRoleChangeSegment(
             config.giswaterRoleLabel || 'Giswater',
             original.giswater,
             roles.giswater,
             noRoleLabel
-          )
-        ].filter(function(segment) {
+          ));
+        }
+        segments = segments.filter(function(segment) {
           return !!segment;
         });
 
@@ -671,6 +697,9 @@
     }
 
     function refreshBulkSchemaMultiSelectLabel() {
+      if (!tierEnabled('schema')) {
+        return;
+      }
       var $container = $('#bulk-role-form .gw-bulk-schema-multi-select');
       if (!$container.length) {
         return;
@@ -689,9 +718,15 @@
 
     function formatBulkRolesConfirmBody(form, count) {
       var noRoleLabel = readNoRoleLabel($(form));
-      var schemaRoles = normalizeSchemaRoles($('#bulk-schema-roles').val() || '');
-      var managerRole = String($('#bulk-manager-role-select').val() || '');
-      var giswaterRole = String($('#bulk-giswater-role-select').val() || '');
+      var schemaRoles = tierEnabled('schema')
+        ? normalizeSchemaRoles($('#bulk-schema-roles').val() || '')
+        : [];
+      var managerRole = tierEnabled('manager')
+        ? String($('#bulk-manager-role-select').val() || '')
+        : '';
+      var giswaterRole = tierEnabled('giswater')
+        ? String($('#bulk-giswater-role-select').val() || '')
+        : '';
       var createUsers = [];
       roleEligibleCheckboxes().filter(':checked').each(function() {
         var username = String($(this).data('username') || $(this).val() || '');
@@ -718,16 +753,32 @@
           '</ul>'
         );
       }
-      parts.push(
-        '<ul class="gw-confirm-list">',
-        '<li>' + (config.schemaRoleLabel || 'Schema') + ': ' +
-          formatSchemaRolesLabel(schemaRoles, noRoleLabel) + '</li>',
-        '<li>' + (config.managerRoleLabel || 'Manager') + ': ' +
-          roleLabel(managerRole, noRoleLabel) + '</li>',
-        '<li>' + (config.giswaterRoleLabel || 'Giswater') + ': ' +
-          roleLabel(giswaterRole, noRoleLabel) + '</li>',
-        '</ul>'
-      );
+      var roleLines = [];
+      if (tierEnabled('schema')) {
+        roleLines.push(
+          '<li>' + (config.schemaRoleLabel || 'Schema') + ': ' +
+            formatSchemaRolesLabel(schemaRoles, noRoleLabel) + '</li>'
+        );
+      }
+      if (tierEnabled('manager')) {
+        roleLines.push(
+          '<li>' + (config.managerRoleLabel || 'Manager') + ': ' +
+            roleLabel(managerRole, noRoleLabel) + '</li>'
+        );
+      }
+      if (tierEnabled('giswater')) {
+        roleLines.push(
+          '<li>' + (config.giswaterRoleLabel || 'Giswater') + ': ' +
+            roleLabel(giswaterRole, noRoleLabel) + '</li>'
+        );
+      }
+      if (roleLines.length > 0) {
+        parts.push(
+          '<ul class="gw-confirm-list">',
+          roleLines.join(''),
+          '</ul>'
+        );
+      }
       return parts.join('');
     }
 
@@ -852,14 +903,26 @@
         }
       });
 
-      var rolesSummary = [
-        (config.schemaRoleLabel || 'Schema') + ': ' +
-          formatSchemaRolesLabel(roles.schema, noRoleLabel),
-        (config.managerRoleLabel || 'Manager') + ': ' +
-          roleLabel(roles.manager, noRoleLabel),
-        (config.giswaterRoleLabel || 'Giswater') + ': ' +
-          roleLabel(roles.giswater, noRoleLabel)
-      ].join('; ');
+      var rolesSummary = [];
+      if (tierEnabled('schema')) {
+        rolesSummary.push(
+          (config.schemaRoleLabel || 'Schema') + ': ' +
+            formatSchemaRolesLabel(roles.schema, noRoleLabel)
+        );
+      }
+      if (tierEnabled('manager')) {
+        rolesSummary.push(
+          (config.managerRoleLabel || 'Manager') + ': ' +
+            roleLabel(roles.manager, noRoleLabel)
+        );
+      }
+      if (tierEnabled('giswater')) {
+        rolesSummary.push(
+          (config.giswaterRoleLabel || 'Giswater') + ': ' +
+            roleLabel(roles.giswater, noRoleLabel)
+        );
+      }
+      rolesSummary = rolesSummary.join('; ');
 
       showConfirm({
         title: config.confirmTitle,
@@ -873,11 +936,23 @@
         $form.find(
           'input[name="schema_role"], input[name="manager_role"], input[name="role"]'
         ).remove();
-        $form.append(
-          $('<input type="hidden" name="schema_role">').val(roles.schema.join(',')),
-          $('<input type="hidden" name="manager_role">').val(roles.manager),
-          $('<input type="hidden" name="role">').val(roles.giswater)
-        );
+        var hiddenFields = [];
+        if (tierEnabled('schema')) {
+          hiddenFields.push(
+            $('<input type="hidden" name="schema_role">').val(roles.schema.join(','))
+          );
+        }
+        if (tierEnabled('manager')) {
+          hiddenFields.push(
+            $('<input type="hidden" name="manager_role">').val(roles.manager)
+          );
+        }
+        if (tierEnabled('giswater')) {
+          hiddenFields.push(
+            $('<input type="hidden" name="role">').val(roles.giswater)
+          );
+        }
+        $form.append(hiddenFields);
         showGlobalOverlay(config.creatingPgUser);
         submitFormNative(form);
       });

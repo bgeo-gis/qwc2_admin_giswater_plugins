@@ -7,7 +7,6 @@ or (at your option) any later version.
 import json
 import os
 import re
-import secrets
 
 from markupsafe import Markup
 from sqlalchemy import text
@@ -20,27 +19,23 @@ from ..services.keycloak_client import KeycloakClient, KeycloakClientError
 
 
 PG_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
-DEFAULT_GISWATER_ROLES = [
-    'role_admin',
-    'role_basic',
-    'role_crm',
-    'role_edit',
-    'role_epa',
-    'role_master',
-    'role_om',
-    'role_plan',
-    'role_system',
-]
-DEFAULT_SCHEMA_ROLES = [
-    'role_ws',
-    'role_ud',
-    'role_utils',
-]
-DEFAULT_MANAGER_ROLES = [
-    'role_expl1',
-    'role_expl2',
-    'role_expl3',
-]
+AUDIT_PROCESS_NAME = "QWC2 Backoffice"
+USER_LOG_INSERT = text("""
+    INSERT INTO audit.user_log (
+        type,
+        process_name,
+        user_name,
+        old_data,
+        new_data
+    )
+    VALUES (
+        :type,
+        :process_name,
+        :user_name,
+        :old_data,
+        :new_data
+    )
+""")
 
 
 class GiswaterRolesController():
@@ -206,12 +201,23 @@ class GiswaterRolesController():
             synced_page,
         )
 
+        plugin_cfg = self._plugin_config()
+        show_schema_roles = plugin_cfg['show_schema_roles']
+        show_manager_roles = plugin_cfg['show_manager_roles']
+        show_giswater_roles = plugin_cfg['show_giswater_roles']
+
         return {
             'users': users,
             'synced_pagination': synced_pagination,
             'available_roles': available_roles,
             'available_schema_roles': available_schema_roles,
             'available_manager_roles': available_manager_roles,
+            'show_schema_roles': show_schema_roles,
+            'show_manager_roles': show_manager_roles,
+            'show_giswater_roles': show_giswater_roles,
+            'has_role_tiers': (
+                show_schema_roles or show_manager_roles or show_giswater_roles
+            ),
             'search': search,
             'schema_role_filter': schema_role_filter,
             'manager_role_filter': manager_role_filter,
@@ -390,16 +396,20 @@ class GiswaterRolesController():
                     users=", ".join(sorted(invalid))
                 ))
 
-            available_giswater = set(self._get_available_roles())
+            tier_cfg = self._plugin_config()
             available_schema = set(self._get_available_schema_roles())
             available_manager = set(self._get_available_manager_roles())
-            for role in self._parse_role_list(schema_roles_value):
-                if role not in available_schema:
-                    raise ValueError(i18n.translate("invalid_role", role=role))
-            if manager_role and manager_role not in available_manager:
-                raise ValueError(i18n.translate("invalid_role", role=manager_role))
-            if giswater_role and giswater_role not in available_giswater:
-                raise ValueError(i18n.translate("invalid_role", role=giswater_role))
+            available_giswater = set(self._get_available_roles())
+            if tier_cfg['show_schema_roles']:
+                for role in self._parse_role_list(schema_roles_value):
+                    if role not in available_schema:
+                        raise ValueError(i18n.translate("invalid_role", role=role))
+            if tier_cfg['show_manager_roles'] and manager_role:
+                if manager_role not in available_manager:
+                    raise ValueError(i18n.translate("invalid_role", role=manager_role))
+            if tier_cfg['show_giswater_roles'] and giswater_role:
+                if giswater_role not in available_giswater:
+                    raise ValueError(i18n.translate("invalid_role", role=giswater_role))
 
             updated = []
             created = []
@@ -492,19 +502,23 @@ class GiswaterRolesController():
                     users=", ".join(sorted(invalid))
                 ))
 
+            tier_cfg = self._plugin_config()
             available_giswater = set(self._get_available_roles())
             available_schema = set(self._get_available_schema_roles())
             available_manager = set(self._get_available_manager_roles())
-            for role in roles:
-                if role and role not in available_giswater:
-                    raise ValueError(i18n.translate("invalid_role", role=role))
-            for schema_roles_value in schema_roles:
-                for role in self._parse_role_list(schema_roles_value):
-                    if role not in available_schema:
+            if tier_cfg['show_giswater_roles']:
+                for role in roles:
+                    if role and role not in available_giswater:
                         raise ValueError(i18n.translate("invalid_role", role=role))
-            for role in manager_roles:
-                if role and role not in available_manager:
-                    raise ValueError(i18n.translate("invalid_role", role=role))
+            if tier_cfg['show_schema_roles']:
+                for schema_roles_value in schema_roles:
+                    for role in self._parse_role_list(schema_roles_value):
+                        if role not in available_schema:
+                            raise ValueError(i18n.translate("invalid_role", role=role))
+            if tier_cfg['show_manager_roles']:
+                for role in manager_roles:
+                    if role and role not in available_manager:
+                        raise ValueError(i18n.translate("invalid_role", role=role))
 
             updated = []
             created = []
@@ -592,21 +606,27 @@ class GiswaterRolesController():
                     "pg_user_already_exists", username=username
                 ))
 
+            tier_cfg = self._plugin_config()
             available_schema = set(self._get_available_schema_roles())
             available_manager = set(self._get_available_manager_roles())
             available_giswater = set(self._get_available_roles())
-            for role in schema_roles:
-                if role not in available_schema:
-                    raise ValueError(i18n.translate("invalid_role", role=role))
-            if manager_role and manager_role not in available_manager:
-                raise ValueError(i18n.translate("invalid_role", role=manager_role))
-            if giswater_role and giswater_role not in available_giswater:
-                raise ValueError(i18n.translate("invalid_role", role=giswater_role))
+            if tier_cfg['show_schema_roles']:
+                for role in schema_roles:
+                    if role not in available_schema:
+                        raise ValueError(i18n.translate("invalid_role", role=role))
+            if tier_cfg['show_manager_roles'] and manager_role:
+                if manager_role not in available_manager:
+                    raise ValueError(i18n.translate("invalid_role", role=manager_role))
+            if tier_cfg['show_giswater_roles'] and giswater_role:
+                if giswater_role not in available_giswater:
+                    raise ValueError(i18n.translate("invalid_role", role=giswater_role))
 
-            roles_to_grant = list(schema_roles)
-            if manager_role:
+            roles_to_grant = []
+            if tier_cfg['show_schema_roles']:
+                roles_to_grant.extend(schema_roles)
+            if tier_cfg['show_manager_roles'] and manager_role:
                 roles_to_grant.append(manager_role)
-            if giswater_role:
+            if tier_cfg['show_giswater_roles'] and giswater_role:
                 roles_to_grant.append(giswater_role)
             self._create_pg_login_user(username, roles_to_grant)
             if roles_to_grant:
@@ -776,20 +796,27 @@ class GiswaterRolesController():
 
         if user.get('can_manage_roles'):
             pg_username = self._role_username(user)
-            self._set_user_schema_roles(pg_username, schema_roles)
-            self._set_user_tier_role(
-                pg_username, manager_role or None, 'manager'
-            )
-            self._set_user_tier_role(
-                pg_username, giswater_role or None, 'giswater'
-            )
+            tier_cfg = self._plugin_config()
+            if tier_cfg['show_schema_roles']:
+                self._set_user_schema_roles(pg_username, schema_roles)
+            if tier_cfg['show_manager_roles']:
+                self._set_user_tier_role(
+                    pg_username, manager_role or None, 'manager'
+                )
+            if tier_cfg['show_giswater_roles']:
+                self._set_user_tier_role(
+                    pg_username, giswater_role or None, 'giswater'
+                )
             return 'updated'
 
         if user.get('can_create_in_pg'):
-            roles_to_grant = list(schema_roles)
-            if manager_role:
+            roles_to_grant = []
+            tier_cfg = self._plugin_config()
+            if tier_cfg['show_schema_roles']:
+                roles_to_grant.extend(schema_roles)
+            if tier_cfg['show_manager_roles'] and manager_role:
                 roles_to_grant.append(manager_role)
-            if giswater_role:
+            if tier_cfg['show_giswater_roles'] and giswater_role:
                 roles_to_grant.append(giswater_role)
             self._create_pg_login_user(username, roles_to_grant)
             return 'created'
@@ -865,16 +892,22 @@ class GiswaterRolesController():
     def _plugin_config(self):
         """Get plugin-specific config options."""
         config = self.handler().config()
+        schema_roles, show_schema_roles = self._tier_roles_from_config(
+            config, 'giswater_schema_roles'
+        )
+        manager_roles, show_manager_roles = self._tier_roles_from_config(
+            config, 'giswater_manager_roles'
+        )
+        giswater_roles, show_giswater_roles = self._tier_roles_from_config(
+            config, 'giswater_roles'
+        )
         return {
-            'schema_roles': self._configured_role_list(
-                config.get('giswater_schema_roles'), DEFAULT_SCHEMA_ROLES
-            ),
-            'manager_roles': self._configured_role_list(
-                config.get('giswater_manager_roles'), DEFAULT_MANAGER_ROLES
-            ),
-            'giswater_tier_roles': self._configured_role_list(
-                config.get('giswater_roles'), DEFAULT_GISWATER_ROLES
-            ),
+            'schema_roles': schema_roles,
+            'manager_roles': manager_roles,
+            'giswater_tier_roles': giswater_roles,
+            'show_schema_roles': show_schema_roles,
+            'show_manager_roles': show_manager_roles,
+            'show_giswater_roles': show_giswater_roles,
             'keycloak_token_url': (
                 config.get('giswater_keycloak_token_url') or ''
             ).strip(),
@@ -889,10 +922,20 @@ class GiswaterRolesController():
             ).strip(),
         }
 
-    def _configured_role_list(self, value, defaults):
-        """Return role names from config or defaults."""
+    def _tier_roles_from_config(self, config, key):
+        """Return configured role names and whether the tier is enabled in config."""
+        raw_value = config.get(key)
+        if raw_value is None:
+            return [], False
+        roles = self._parse_config_role_list(raw_value)
+        if not roles:
+            return [], False
+        return roles, True
+
+    def _parse_config_role_list(self, value):
+        """Parse a role list from admin config; never falls back to defaults."""
         if value is None:
-            return list(defaults)
+            return []
         if isinstance(value, str):
             items = [
                 item.strip()
@@ -906,8 +949,8 @@ class GiswaterRolesController():
                 if item is not None and str(item).strip()
             ]
         else:
-            return list(defaults)
-        return items or list(defaults)
+            return []
+        return items
 
     def _pg_roles_that_exist(self, role_names):
         """Return the subset of role names that exist in PostgreSQL."""
@@ -1055,11 +1098,22 @@ class GiswaterRolesController():
         return main_users
 
     def _get_pg_login_roles(self):
+        """Return PostgreSQL roles that match Keycloak usernames (login or group role)."""
+        keycloak_keys = {
+            self._username_key(user['name'])
+            for user in self._load_keycloak_users()
+        }
+        if not keycloak_keys:
+            return set()
+
         with self._with_giswater_connection() as conn:
             rows = conn.execute(
-                text("SELECT rolname FROM pg_roles WHERE rolcanlogin")
+                text("SELECT rolname FROM pg_roles")
             ).fetchall()
-            return {row[0] for row in rows}
+        return {
+            row[0] for row in rows
+            if self._username_key(row[0]) in keycloak_keys
+        }
 
     def _get_all_user_role_memberships(self, available_roles):
         """Return {username: [role, ...]} for all users with grantable roles."""
@@ -1074,8 +1128,7 @@ class GiswaterRolesController():
                     FROM pg_auth_members m
                     JOIN pg_roles r ON m.roleid = r.oid
                     JOIN pg_roles u ON m.member = u.oid
-                    WHERE u.rolcanlogin
-                      AND NOT r.rolcanlogin
+                    WHERE NOT r.rolcanlogin
                       AND r.rolname = ANY(:roles)
                     ORDER BY u.rolname, r.rolname
                 """),
@@ -1083,7 +1136,13 @@ class GiswaterRolesController():
             ).fetchall()
 
         memberships = {}
+        keycloak_keys = {
+            self._username_key(user['name'])
+            for user in self._load_keycloak_users()
+        }
         for username, role in rows:
+            if self._username_key(username) not in keycloak_keys:
+                continue
             memberships.setdefault(username, []).append(role)
         return memberships
 
@@ -1199,7 +1258,7 @@ class GiswaterRolesController():
             result = conn.execute(
                 text(
                     "SELECT 1 FROM pg_roles "
-                    "WHERE rolname = :username AND rolcanlogin"
+                    "WHERE rolname = :username"
                 ),
                 {"username": username}
             ).fetchone()
@@ -1219,7 +1278,6 @@ class GiswaterRolesController():
                     JOIN pg_roles r ON m.roleid = r.oid
                     JOIN pg_roles u ON m.member = u.oid
                     WHERE u.rolname = :username
-                      AND u.rolcanlogin
                       AND NOT r.rolcanlogin
                       AND r.rolname = ANY(:roles)
                     ORDER BY r.rolname
@@ -1332,13 +1390,34 @@ class GiswaterRolesController():
                 for role in sorted(roles_to_revoke):
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(text("REVOKE %s FROM %s" % (quoted_role, quoted_user)))
+                    self._insert_user_log(
+                        conn, "revoke", username, old_data=role
+                    )
 
                 for role in sorted(roles_to_grant):
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(text("GRANT %s TO %s" % (quoted_role, quoted_user)))
+                    self._insert_user_log(
+                        conn, "grant", username, new_data=role
+                    )
+
+    def _insert_user_log(
+        self, conn, log_type, user_name, old_data=None, new_data=None
+    ):
+        """Write an entry to audit.user_log (same schema as QWC2 Login)."""
+        conn.execute(
+            USER_LOG_INSERT,
+            {
+                "type": log_type,
+                "process_name": AUDIT_PROCESS_NAME,
+                "user_name": user_name,
+                "old_data": old_data,
+                "new_data": new_data,
+            },
+        )
 
     def _create_pg_login_user(self, username, roles_to_grant=None):
-        """Create a PostgreSQL login role and optionally grant tier roles."""
+        """Create a PostgreSQL group role for a user and optionally grant tier roles."""
         self._validate_pg_identifier(username)
         if self._pg_role_exists(username):
             raise ValueError(i18n.translate(
@@ -1358,26 +1437,18 @@ class GiswaterRolesController():
         self._ensure_roles_exist_in_db(roles_to_grant)
 
         quoted_user = self._quote_pg_identifier(username)
-        password = secrets.token_urlsafe(24)
 
         with self._with_giswater_connection(for_write=True) as conn:
             with conn.begin():
-                conn.execute(
-                    text(
-                        "CREATE ROLE %s LOGIN PASSWORD :password"
-                        % quoted_user
-                    ),
-                    {"password": password}
-                )
-                db_name = conn.execute(text("SELECT current_database()")).scalar()
-                quoted_db = '"%s"' % db_name.replace('"', '""')
-                conn.execute(
-                    text("GRANT CONNECT ON DATABASE %s TO %s" % (quoted_db, quoted_user))
-                )
+                conn.execute(text("CREATE ROLE %s" % quoted_user))
+                self._insert_user_log(conn, "create", username)
                 for role in sorted(set(roles_to_grant)):
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(
                         text("GRANT %s TO %s" % (quoted_role, quoted_user))
+                    )
+                    self._insert_user_log(
+                        conn, "grant", username, new_data=role
                     )
 
     def _find_pg_username(self, username):
@@ -1419,4 +1490,5 @@ class GiswaterRolesController():
                         % (quoted_db, quoted_user)
                     )
                 )
+                self._insert_user_log(conn, "delete", username)
                 conn.execute(text("DROP ROLE %s" % quoted_user))
