@@ -1059,14 +1059,15 @@
       if ($(form).data('hasQwc') === '1' || $(form).data('hasQwc') === 1) {
         body += ' ' + $(form).data('qwcWarning');
       }
-      showConfirm({
+      showConfirm($.extend({
         title: config.confirmTitle,
         danger: true,
         body: body
-      }).then(function(result) {
+      }, confirmCommentOptions())).then(function(result) {
         if (!result || !result.ok) {
           return;
         }
+        appendFormAuditComment($(form), result.comment);
         showGlobalOverlay(config.deletingPgUser);
         submitFormNative(form);
       });

@@ -700,7 +700,9 @@ class GiswaterRolesController():
                     "pg_role_not_found_plain", username=username
                 ))
 
-            self._drop_pg_login_user(pg_username)
+            self._drop_pg_login_user(
+                pg_username, observ=self._read_audit_comment()
+            )
             flash(
                 i18n.translate("pg_user_deleted", username=pg_username),
                 'success'
@@ -1585,7 +1587,7 @@ class GiswaterRolesController():
                 return pg_name
         return None
 
-    def _drop_pg_login_user(self, username):
+    def _drop_pg_login_user(self, username, observ=None):
         """Revoke privileges and drop a PostgreSQL login role."""
         self._validate_pg_identifier(username)
         if not self._pg_role_exists(username):
@@ -1617,5 +1619,7 @@ class GiswaterRolesController():
                         % (quoted_db, quoted_user)
                     )
                 )
-                self._insert_user_log(conn, "delete", username)
+                self._insert_user_log(
+                    conn, "delete", username, observ=observ
+                )
                 conn.execute(text("DROP ROLE %s" % quoted_user))
