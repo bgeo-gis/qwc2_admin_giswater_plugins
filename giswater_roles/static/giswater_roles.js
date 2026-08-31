@@ -27,6 +27,40 @@
     sessionStorage.removeItem(PENDING_STORAGE_KEY);
   }
 
+  function clearPendingChangeForUser(username) {
+    var store = loadPendingStore();
+    if (store[username]) {
+      delete store[username];
+      savePendingStore(store);
+    }
+  }
+
+  function pruneStalePendingCreates() {
+    var store = loadPendingStore();
+    var changed = false;
+
+    Object.keys(store).forEach(function(username) {
+      var item = store[username];
+      if (!item || !item.needsPgCreate) {
+        return;
+      }
+      var $row = findSyncedUserRow(username);
+      if ($row.length && !$row.hasClass('gw-row-pending-pg')) {
+        delete store[username];
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      savePendingStore(store);
+    }
+  }
+
+  function findSyncedUserRow(username) {
+    return $('#synced-section-content .user-checkbox[data-username="' + username + '"]')
+      .closest('tr');
+  }
+
   function initTooltips($root) {
     if (!$.fn.tooltip) {
       return;
@@ -62,6 +96,7 @@
   function showConfirm(options) {
     var deferred = $.Deferred();
     var $modal = $('#gw-confirm-modal');
+    var requireComment = !!options.requireComment;
     $('#gw-confirm-title').text(options.title || '');
     $('#gw-confirm-body').empty();
     if (options.bodyHtml) {
@@ -69,11 +104,34 @@
     } else {
       $('#gw-confirm-body').text(options.body || '');
     }
+    $('#gw-confirm-comment-wrap').remove();
+    if (requireComment) {
+      var $commentWrap = $(
+        '<div id="gw-confirm-comment-wrap" class="gw-confirm-comment">' +
+          '<label for="gw-confirm-comment"></label>' +
+          '<textarea id="gw-confirm-comment" class="form-control" rows="3"></textarea>' +
+          '<p class="gw-confirm-comment-error text-danger" hidden></p>' +
+        '</div>'
+      );
+      $commentWrap.find('label').text(options.commentLabel || '');
+      $commentWrap.find('textarea').attr(
+        'placeholder', options.commentPlaceholder || ''
+      );
+      $commentWrap.find('.gw-confirm-comment-error').text(
+        options.commentRequired || ''
+      );
+      $('#gw-confirm-body').append($commentWrap);
+    }
     $('#gw-confirm-ok')
       .toggleClass('btn-danger', !!options.danger)
       .toggleClass('btn-primary', !options.danger);
     $modal.removeAttr('hidden').addClass('is-open');
     $('body').addClass('gw-modal-open');
+    if (requireComment) {
+      setTimeout(function() {
+        $('#gw-confirm-comment').trigger('focus');
+      }, 0);
+    }
 
     function closeModal(result) {
       $modal.removeClass('is-open').attr('hidden', 'hidden');
@@ -85,13 +143,23 @@
     }
 
     $('#gw-confirm-ok').on('click.gwConfirm', function() {
-      closeModal(true);
+      var comment = '';
+      if (requireComment) {
+        comment = ($('#gw-confirm-comment').val() || '').trim();
+        if (!comment) {
+          $('#gw-confirm-comment-wrap .gw-confirm-comment-error')
+            .prop('hidden', false);
+          $('#gw-confirm-comment').trigger('focus');
+          return;
+        }
+      }
+      closeModal({ ok: true, comment: comment });
     });
     $('#gw-confirm-cancel').on('click.gwConfirm', function() {
-      closeModal(false);
+      closeModal({ ok: false, comment: '' });
     });
     $modal.find('.gw-modal-backdrop').on('click.gwConfirm', function() {
-      closeModal(false);
+      closeModal({ ok: false, comment: '' });
     });
 
     return deferred.promise();
@@ -118,6 +186,28 @@
         $selects = $selects.filter('[data-username="' + username + '"]');
       }
       return $selects;
+    }
+
+    function confirmCommentOptions() {
+      if (!config.requireAuditComment) {
+        return {};
+      }
+      return {
+        requireComment: true,
+        commentLabel: config.auditCommentLabel,
+        commentPlaceholder: config.auditCommentPlaceholder,
+        commentRequired: config.auditCommentRequired
+      };
+    }
+
+    function appendFormAuditComment($form, comment) {
+      $form.find('input[name="audit_comment"]').remove();
+      if (!config.requireAuditComment) {
+        return;
+      }
+      $form.append(
+        $('<input type="hidden" name="audit_comment">').val(comment || '')
+      );
     }
 
     function readNoRoleLabel($el) {
@@ -375,8 +465,7 @@
     }
 
     function userNeedsPgCreate(username) {
-      var $row = $('#synced-section-content .gw-schema-multi-select[data-username="' +
-        username + '"]').closest('tr');
+      var $row = findSyncedUserRow(username);
       if ($row.length) {
         return $row.hasClass('gw-row-pending-pg');
       }
@@ -516,8 +605,8 @@
       showConfirm({
         title: config.confirmTitle,
         body: config.cancelPendingConfirm
-      }).then(function(ok) {
-        if (ok) {
+      }).then(function(result) {
+        if (result && result.ok) {
           cancelAllPendingRoleChanges();
         }
       });
@@ -585,6 +674,7 @@
       initTooltips($('#synced-section-content'));
       updateSectionTotals();
       updateFormActions();
+      pruneStalePendingCreates();
       restorePendingToVisibleSelects();
       initSchemaMultiSelects($('#synced-section-content'));
       updateSyncedSelectionToolbar();
@@ -861,11 +951,11 @@
         return;
       }
       refreshBulkSchemaMultiSelectLabel();
-      showConfirm({
+      showConfirm($.extend({
         title: config.confirmTitle,
         bodyHtml: formatBulkRolesConfirmBody(form, checked.length)
-      }).then(function(ok) {
-        if (!ok) {
+      }, confirmCommentOptions())).then(function(result) {
+        if (!result || !result.ok) {
           return;
         }
         $('#bulk-role-usernames').empty();
@@ -874,6 +964,7 @@
             $('<input type="hidden" name="usernames">').val($(this).val())
           );
         });
+        appendFormAuditComment($(form), result.comment);
         showGlobalOverlay(config.applyingRoles);
         submitFormNative(form);
       });
@@ -924,13 +1015,13 @@
       }
       rolesSummary = rolesSummary.join('; ');
 
-      showConfirm({
+      showConfirm($.extend({
         title: config.confirmTitle,
         body: $form.data('confirm')
           .replace('{username}', username)
           .replace('{roles}', rolesSummary)
-      }).then(function(ok) {
-        if (!ok) {
+      }, confirmCommentOptions())).then(function(result) {
+        if (!result || !result.ok) {
           return;
         }
         $form.find(
@@ -953,6 +1044,8 @@
           );
         }
         $form.append(hiddenFields);
+        appendFormAuditComment($form, result.comment);
+        clearPendingChangeForUser(username);
         showGlobalOverlay(config.creatingPgUser);
         submitFormNative(form);
       });
@@ -970,8 +1063,8 @@
         title: config.confirmTitle,
         danger: true,
         body: body
-      }).then(function(ok) {
-        if (!ok) {
+      }).then(function(result) {
+        if (!result || !result.ok) {
           return;
         }
         showGlobalOverlay(config.deletingPgUser);
@@ -1048,11 +1141,11 @@
         }).join('') +
         '</ul>'
       );
-      showConfirm({
+      showConfirm($.extend({
         title: $(form).data('confirm-header'),
         bodyHtml: bodyParts.join('')
-      }).then(function(ok) {
-        if (!ok) {
+      }, confirmCommentOptions())).then(function(result) {
+        if (!result || !result.ok) {
           return;
         }
         $('#pending-role-changes').empty();
@@ -1064,6 +1157,7 @@
             $('<input type="hidden" name="roles">').val(change.giswaterRole)
           );
         });
+        appendFormAuditComment($(form), result.comment);
         clearPendingStore();
         showGlobalOverlay(config.applyingRoles);
         submitFormNative(form);
@@ -1080,6 +1174,7 @@
     });
 
     updateFormActions();
+    pruneStalePendingCreates();
     restorePendingToVisibleSelects();
     initSchemaMultiSelects($(document));
     refreshBulkSchemaMultiSelectLabel();

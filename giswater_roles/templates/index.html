@@ -718,6 +718,26 @@
     font-size: 13px;
     color: #777;
   }
+  .gw-confirm-comment {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid #eee;
+  }
+  .gw-confirm-comment label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 600;
+    font-size: 13px;
+    color: #444;
+  }
+  .gw-confirm-comment textarea {
+    resize: vertical;
+    min-height: 72px;
+  }
+  .gw-confirm-comment-error {
+    margin: 6px 0 0;
+    font-size: 12px;
+  }
   body.gw-modal-open {
     overflow: hidden;
   }
@@ -749,6 +769,10 @@
       "showManagerRoles": {{ show_manager_roles|tojson }},
       "showGiswaterRoles": {{ show_giswater_roles|tojson }},
       "hasRoleTiers": {{ has_role_tiers|tojson }},
+      "requireAuditComment": {{ require_audit_comment|tojson }},
+      "auditCommentLabel": {{ i18n.translate('audit_comment_label')|tojson }},
+      "auditCommentPlaceholder": {{ i18n.translate('audit_comment_placeholder')|tojson }},
+      "auditCommentRequired": {{ i18n.translate('audit_comment_required')|tojson }},
       "urls": {
         "applyChanges": {{ url_for('giswater_roles_apply_changes')|tojson }},
         "bulkRoles": {{ url_for('giswater_roles_set_roles_bulk')|tojson }}
@@ -783,7 +807,7 @@
   </div>
   <h1>{{ title }}</h1>
 
-  <p>{{ i18n.translate('description') }}</p>
+  <p>{{ description }}</p>
 
   <div class="gw-pending-banner-slot">
     <div id="pending-changes-banner" class="gw-pending-banner" aria-live="polite">
@@ -883,10 +907,10 @@
       <i class="fas fa-users-cog gw-section-icon" aria-hidden="true"></i>
       <div>
         <h3 class="gw-section-title">
-          {{ i18n.translate('users_title') }}
+          {{ users_title }}
           <span class="gw-count-badge">{{ synced_pagination.total }}</span>
         </h3>
-        <p class="gw-section-help">{{ i18n.translate('users_help') }}</p>
+        <p class="gw-section-help">{{ users_help }}</p>
       </div>
     </div>
   </div>

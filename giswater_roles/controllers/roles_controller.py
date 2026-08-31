@@ -20,26 +20,31 @@ from ..services.keycloak_client import KeycloakClient, KeycloakClientError
 
 PG_IDENTIFIER_RE = re.compile(r'^[a-zA-Z_][a-zA-Z0-9_]*$')
 AUDIT_PROCESS_NAME = "QWC2 Backoffice"
+USER_SOURCE_KEYCLOAK = 'keycloak'
+USER_SOURCE_QWC2 = 'qwc2'
+USER_SOURCE_MODES = (USER_SOURCE_KEYCLOAK, USER_SOURCE_QWC2)
 USER_LOG_INSERT = text("""
     INSERT INTO audit.user_log (
         type,
         process_name,
         user_name,
         old_data,
-        new_data
+        new_data,
+        observ
     )
     VALUES (
         :type,
         :process_name,
         :user_name,
         :old_data,
-        :new_data
+        :new_data,
+        :observ
     )
 """)
 
 
 class GiswaterRolesController():
-    """Controller for managing PostgreSQL roles of Keycloak users in Giswater DB."""
+    """Controller for managing PostgreSQL roles of Giswater users."""
 
     def __init__(self, app, handler):
         app.add_url_rule(
@@ -205,6 +210,7 @@ class GiswaterRolesController():
         show_schema_roles = plugin_cfg['show_schema_roles']
         show_manager_roles = plugin_cfg['show_manager_roles']
         show_giswater_roles = plugin_cfg['show_giswater_roles']
+        user_source_mode = plugin_cfg['mode']
 
         return {
             'users': users,
@@ -217,6 +223,21 @@ class GiswaterRolesController():
             'show_giswater_roles': show_giswater_roles,
             'has_role_tiers': (
                 show_schema_roles or show_manager_roles or show_giswater_roles
+            ),
+            'user_source_mode': user_source_mode,
+            'show_qwc_sync': user_source_mode == USER_SOURCE_KEYCLOAK,
+            'require_audit_comment': plugin_cfg['require_audit_comment'],
+            'description': i18n.translate(
+                'description_%s' % user_source_mode
+            ),
+            'users_title': i18n.translate(
+                'users_title_%s' % user_source_mode
+            ),
+            'users_help': i18n.translate(
+                'users_help_%s' % user_source_mode
+            ),
+            'no_users_message': i18n.translate(
+                'no_users_%s' % user_source_mode
             ),
             'search': search,
             'schema_role_filter': schema_role_filter,
@@ -349,7 +370,9 @@ class GiswaterRolesController():
             if role and role not in available_roles:
                 raise ValueError(i18n.translate("invalid_role", role=role))
 
-            self._set_user_role(user.name, role or None)
+            self._set_user_role(
+                user.name, role or None, observ=self._read_audit_comment()
+            )
 
             if role:
                 flash(
@@ -411,6 +434,8 @@ class GiswaterRolesController():
                 if giswater_role not in available_giswater:
                     raise ValueError(i18n.translate("invalid_role", role=giswater_role))
 
+            audit_comment = self._read_audit_comment()
+
             updated = []
             created = []
             failed = []
@@ -422,6 +447,7 @@ class GiswaterRolesController():
                         schema_roles_value,
                         manager_role,
                         giswater_role,
+                        observ=audit_comment,
                     )
                     if action == 'created':
                         created.append(username)
@@ -520,6 +546,8 @@ class GiswaterRolesController():
                     if role and role not in available_manager:
                         raise ValueError(i18n.translate("invalid_role", role=role))
 
+            audit_comment = self._read_audit_comment()
+
             updated = []
             created = []
             failed = []
@@ -533,6 +561,7 @@ class GiswaterRolesController():
                         schema_roles_value,
                         manager_role,
                         giswater_role,
+                        observ=audit_comment,
                     )
                     if action == 'created':
                         created.append(username)
@@ -579,7 +608,7 @@ class GiswaterRolesController():
         return self._redirect_index()
 
     def create_pg_user(self):
-        """Create a PostgreSQL login role for a Keycloak user and assign roles."""
+        """Create a PostgreSQL login role for a directory user and assign roles."""
         from flask import flash, redirect, request
 
         username = (request.form.get('username') or '').strip()
@@ -592,14 +621,7 @@ class GiswaterRolesController():
             if not username:
                 raise ValueError(i18n.translate("username_required"))
 
-            keycloak_keys = {
-                self._username_key(user['name'])
-                for user in self._load_keycloak_users()
-            }
-            if self._username_key(username) not in keycloak_keys:
-                raise ValueError(i18n.translate(
-                    "create_pg_invalid_user", username=username
-                ))
+            self._ensure_directory_user(username)
 
             if self._pg_role_exists(username):
                 raise ValueError(i18n.translate(
@@ -621,6 +643,8 @@ class GiswaterRolesController():
                 if giswater_role not in available_giswater:
                     raise ValueError(i18n.translate("invalid_role", role=giswater_role))
 
+            audit_comment = self._read_audit_comment()
+
             roles_to_grant = []
             if tier_cfg['show_schema_roles']:
                 roles_to_grant.extend(schema_roles)
@@ -628,7 +652,9 @@ class GiswaterRolesController():
                 roles_to_grant.append(manager_role)
             if tier_cfg['show_giswater_roles'] and giswater_role:
                 roles_to_grant.append(giswater_role)
-            self._create_pg_login_user(username, roles_to_grant)
+            self._create_pg_login_user(
+                username, roles_to_grant, observ=audit_comment
+            )
             if roles_to_grant:
                 flash(
                     i18n.translate(
@@ -657,7 +683,7 @@ class GiswaterRolesController():
         return self._redirect_index()
 
     def delete_pg_user(self):
-        """Drop a PostgreSQL login role created for a Keycloak user."""
+        """Drop a PostgreSQL login role for a directory user."""
         from flask import flash, request
 
         username = (request.form.get('username') or '').strip()
@@ -666,14 +692,7 @@ class GiswaterRolesController():
             if not username:
                 raise ValueError(i18n.translate("username_required"))
 
-            keycloak_keys = {
-                self._username_key(user['name'])
-                for user in self._load_keycloak_users()
-            }
-            if self._username_key(username) not in keycloak_keys:
-                raise ValueError(i18n.translate(
-                    "delete_pg_invalid_user", username=username
-                ))
+            self._ensure_directory_user(username)
 
             pg_username = self._find_pg_username(username)
             if pg_username is None:
@@ -789,7 +808,8 @@ class GiswaterRolesController():
         }
 
     def _apply_or_create_user_roles(
-        self, username, user, schema_roles_value, manager_role, giswater_role
+        self, username, user, schema_roles_value, manager_role, giswater_role,
+        observ=None
     ):
         """Apply role changes to an existing PG user or create the login role first."""
         schema_roles = self._parse_role_list(schema_roles_value)
@@ -798,14 +818,16 @@ class GiswaterRolesController():
             pg_username = self._role_username(user)
             tier_cfg = self._plugin_config()
             if tier_cfg['show_schema_roles']:
-                self._set_user_schema_roles(pg_username, schema_roles)
+                self._set_user_schema_roles(
+                    pg_username, schema_roles, observ=observ
+                )
             if tier_cfg['show_manager_roles']:
                 self._set_user_tier_role(
-                    pg_username, manager_role or None, 'manager'
+                    pg_username, manager_role or None, 'manager', observ=observ
                 )
             if tier_cfg['show_giswater_roles']:
                 self._set_user_tier_role(
-                    pg_username, giswater_role or None, 'giswater'
+                    pg_username, giswater_role or None, 'giswater', observ=observ
                 )
             return 'updated'
 
@@ -818,7 +840,9 @@ class GiswaterRolesController():
                 roles_to_grant.append(manager_role)
             if tier_cfg['show_giswater_roles'] and giswater_role:
                 roles_to_grant.append(giswater_role)
-            self._create_pg_login_user(username, roles_to_grant)
+            self._create_pg_login_user(
+                username, roles_to_grant, observ=observ
+            )
             return 'created'
 
         raise ValueError(i18n.translate(
@@ -902,12 +926,16 @@ class GiswaterRolesController():
             config, 'giswater_roles'
         )
         return {
+            'mode': self._parse_user_source_mode(config),
             'schema_roles': schema_roles,
             'manager_roles': manager_roles,
             'giswater_tier_roles': giswater_roles,
             'show_schema_roles': show_schema_roles,
             'show_manager_roles': show_manager_roles,
             'show_giswater_roles': show_giswater_roles,
+            'require_audit_comment': self._parse_bool_config(
+                config.get('giswater_roles_require_comment'), False
+            ),
             'keycloak_token_url': (
                 config.get('giswater_keycloak_token_url') or ''
             ).strip(),
@@ -921,6 +949,102 @@ class GiswaterRolesController():
                 config.get('giswater_keycloak_users_url') or ''
             ).strip(),
         }
+
+    def _parse_user_source_mode(self, config):
+        """Return configured user directory mode (keycloak or qwc2)."""
+        raw_mode = config.get('giswater_roles_mode')
+        if raw_mode is None:
+            return USER_SOURCE_KEYCLOAK
+        mode = str(raw_mode).strip().lower()
+        if mode in ('qwc', 'qwc2'):
+            return USER_SOURCE_QWC2
+        if mode == USER_SOURCE_KEYCLOAK:
+            return USER_SOURCE_KEYCLOAK
+        self.logger.warning(
+            "Invalid giswater_roles_mode '%s', falling back to keycloak",
+            raw_mode
+        )
+        return USER_SOURCE_KEYCLOAK
+
+    def _parse_bool_config(self, value, default=False):
+        """Parse a boolean-like config value."""
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text_value = str(value).strip().lower()
+        if text_value in ('1', 'true', 'yes', 'on'):
+            return True
+        if text_value in ('0', 'false', 'no', 'off', ''):
+            return False
+        return default
+
+    def _read_audit_comment(self, required=None):
+        """Read audit comment from the current request; enforce when required."""
+        from flask import request
+
+        if required is None:
+            required = self._plugin_config()['require_audit_comment']
+        comment = (request.form.get('audit_comment') or '').strip()
+        if required and not comment:
+            raise ValueError(i18n.translate('audit_comment_required'))
+        return comment or None
+
+    def _uses_keycloak_users(self):
+        return self._plugin_config()['mode'] == USER_SOURCE_KEYCLOAK
+
+    def _load_directory_users(self):
+        """Load users from the configured directory (Keycloak or QWC)."""
+        if self._uses_keycloak_users():
+            return self._load_keycloak_users()
+        return self._load_qwc_directory_users()
+
+    def _load_qwc_directory_users(self):
+        from flask import g
+
+        cache_key = '_giswater_roles_qwc_directory_users'
+        cached = getattr(g, cache_key, None)
+        if cached is not None:
+            return cached
+
+        users = []
+        for user in self._load_qwc_users():
+            name = (user.name or '').strip()
+            if not name:
+                continue
+            users.append({
+                'name': name,
+                'email': (getattr(user, 'email', None) or '').strip(),
+                'enabled': True,
+            })
+        users.sort(key=lambda item: item['name'].lower())
+        setattr(g, cache_key, users)
+        return users
+
+    def _directory_user_keys(self):
+        from flask import g
+
+        cache_key = '_giswater_roles_directory_user_keys'
+        cached = getattr(g, cache_key, None)
+        if cached is not None:
+            return cached
+
+        keys = {
+            self._username_key(user['name'])
+            for user in self._load_directory_users()
+        }
+        setattr(g, cache_key, keys)
+        return keys
+
+    def _ensure_directory_user(self, username):
+        if self._username_key(username) not in self._directory_user_keys():
+            mode = self._plugin_config()['mode']
+            raise ValueError(i18n.translate(
+                'invalid_directory_user_%s' % mode,
+                username=username
+            ))
 
     def _tier_roles_from_config(self, config, key):
         """Return configured role names and whether the tier is enabled in config."""
@@ -1051,7 +1175,7 @@ class GiswaterRolesController():
             return session.query(User).order_by(User.name).all()
 
     def _load_shared_user_data(self):
-        """Load Keycloak users enriched with QWC/PG sync status."""
+        """Load directory users enriched with QWC/PG sync status."""
         from flask import g
 
         cache_key = '_giswater_roles_shared_user_data'
@@ -1074,10 +1198,10 @@ class GiswaterRolesController():
             qwc_users, pg_login_roles, pg_roles_by_user
         )
 
-        keycloak_users = self._load_keycloak_users()
+        directory_users = self._load_directory_users()
         main_users = []
-        for keycloak_user in keycloak_users:
-            username = keycloak_user['name']
+        for directory_user in directory_users:
+            username = directory_user['name']
             user_data = self._resolve_user_sync(
                 username, qwc_by_key, pg_login_by_key, pg_roles_by_key
             )
@@ -1093,17 +1217,14 @@ class GiswaterRolesController():
         return result
 
     def _load_users_with_roles(self):
-        """Load Keycloak users with QWC/PG sync status."""
+        """Load directory users with QWC/PG sync status."""
         _, _, _, main_users = self._load_shared_user_data()
         return main_users
 
     def _get_pg_login_roles(self):
-        """Return PostgreSQL roles that match Keycloak usernames (login or group role)."""
-        keycloak_keys = {
-            self._username_key(user['name'])
-            for user in self._load_keycloak_users()
-        }
-        if not keycloak_keys:
+        """Return PostgreSQL roles that match directory usernames."""
+        directory_keys = self._directory_user_keys()
+        if not directory_keys:
             return set()
 
         with self._with_giswater_connection() as conn:
@@ -1112,7 +1233,7 @@ class GiswaterRolesController():
             ).fetchall()
         return {
             row[0] for row in rows
-            if self._username_key(row[0]) in keycloak_keys
+            if self._username_key(row[0]) in directory_keys
         }
 
     def _get_all_user_role_memberships(self, available_roles):
@@ -1136,12 +1257,9 @@ class GiswaterRolesController():
             ).fetchall()
 
         memberships = {}
-        keycloak_keys = {
-            self._username_key(user['name'])
-            for user in self._load_keycloak_users()
-        }
+        directory_keys = self._directory_user_keys()
         for username, role in rows:
-            if self._username_key(username) not in keycloak_keys:
+            if self._username_key(username) not in directory_keys:
                 continue
             memberships.setdefault(username, []).append(role)
         return memberships
@@ -1345,7 +1463,7 @@ class GiswaterRolesController():
             if item and str(item).strip()
         ]
 
-    def _set_user_schema_roles(self, username, roles):
+    def _set_user_schema_roles(self, username, roles, observ=None):
         """Assign multiple schema roles, revoking any other schema roles."""
         available_roles = self._tier_available_roles('schema')
         desired = set(roles or []) & available_roles
@@ -1355,9 +1473,11 @@ class GiswaterRolesController():
         )
         roles_to_grant = desired - current
         roles_to_revoke = current - desired
-        self._update_role_memberships(username, roles_to_grant, roles_to_revoke)
+        self._update_role_memberships(
+            username, roles_to_grant, roles_to_revoke, observ=observ
+        )
 
-    def _set_user_tier_role(self, username, role, tier):
+    def _set_user_tier_role(self, username, role, tier, observ=None):
         """Assign a single role within one tier, revoking others in that tier."""
         available_roles = self._tier_available_roles(tier)
         current_roles = (
@@ -1372,13 +1492,17 @@ class GiswaterRolesController():
             roles_to_grant = set()
             roles_to_revoke = current_roles
 
-        self._update_role_memberships(username, roles_to_grant, roles_to_revoke)
+        self._update_role_memberships(
+            username, roles_to_grant, roles_to_revoke, observ=observ
+        )
 
-    def _set_user_role(self, username, role):
+    def _set_user_role(self, username, role, observ=None):
         """Assign a single Giswater role, revoking any other grantable roles."""
-        self._set_user_tier_role(username, role, 'giswater')
+        self._set_user_tier_role(username, role, 'giswater', observ=observ)
 
-    def _update_role_memberships(self, username, roles_to_grant, roles_to_revoke):
+    def _update_role_memberships(
+        self, username, roles_to_grant, roles_to_revoke, observ=None
+    ):
         self._validate_pg_identifier(username)
         quoted_user = self._quote_pg_identifier(username)
 
@@ -1391,18 +1515,18 @@ class GiswaterRolesController():
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(text("REVOKE %s FROM %s" % (quoted_role, quoted_user)))
                     self._insert_user_log(
-                        conn, "revoke", username, old_data=role
+                        conn, "revoke", username, old_data=role, observ=observ
                     )
 
                 for role in sorted(roles_to_grant):
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(text("GRANT %s TO %s" % (quoted_role, quoted_user)))
                     self._insert_user_log(
-                        conn, "grant", username, new_data=role
+                        conn, "grant", username, new_data=role, observ=observ
                     )
 
     def _insert_user_log(
-        self, conn, log_type, user_name, old_data=None, new_data=None
+        self, conn, log_type, user_name, old_data=None, new_data=None, observ=None
     ):
         """Write an entry to audit.user_log (same schema as QWC2 Login)."""
         conn.execute(
@@ -1413,10 +1537,11 @@ class GiswaterRolesController():
                 "user_name": user_name,
                 "old_data": old_data,
                 "new_data": new_data,
+                "observ": observ,
             },
         )
 
-    def _create_pg_login_user(self, username, roles_to_grant=None):
+    def _create_pg_login_user(self, username, roles_to_grant=None, observ=None):
         """Create a PostgreSQL group role for a user and optionally grant tier roles."""
         self._validate_pg_identifier(username)
         if self._pg_role_exists(username):
@@ -1441,14 +1566,16 @@ class GiswaterRolesController():
         with self._with_giswater_connection(for_write=True) as conn:
             with conn.begin():
                 conn.execute(text("CREATE ROLE %s" % quoted_user))
-                self._insert_user_log(conn, "create", username)
+                self._insert_user_log(
+                    conn, "create", username, observ=observ
+                )
                 for role in sorted(set(roles_to_grant)):
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(
                         text("GRANT %s TO %s" % (quoted_role, quoted_user))
                     )
                     self._insert_user_log(
-                        conn, "grant", username, new_data=role
+                        conn, "grant", username, new_data=role, observ=observ
                     )
 
     def _find_pg_username(self, username):

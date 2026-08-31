@@ -131,8 +131,10 @@
         </td>
         <td>
           <span class="gw-sync-status">
+            {% if show_qwc_sync %}
             <span class="gw-sync-badge {% if user['has_qwc'] %}gw-sync-yes{% else %}gw-sync-no{% endif %}"
               title="{{ i18n.translate('sync_in_qwc') }}">QWC</span>
+            {% endif %}
             <span class="gw-sync-badge {% if user['has_pg'] %}gw-sync-yes{% else %}gw-sync-no{% endif %}"
               title="{{ i18n.translate('sync_in_pg') }}">PG</span>
           </span>
@@ -261,7 +263,7 @@
 {% else %}
 <div class="alert alert-info gw-empty-alert" role="alert">
   <i class="fas fa-info-circle" aria-hidden="true"></i>
-  {{ i18n.translate('no_users') }}
+  {{ no_users_message }}
 </div>
 {% endif %}
 </div>
