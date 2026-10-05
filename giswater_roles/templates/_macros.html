@@ -9,8 +9,7 @@
 </th>
 {% endmacro %}
 
-{% macro render_pagination(pagination, page_param, nav_filter_params, nav_page_url, nav_i18n) %}
-  {% set section = 'synced' %}
+{% macro render_pagination(pagination, page_param, nav_filter_params, nav_page_url, nav_i18n, section='synced') %}
   {% if pagination.total_pages > 1 %}
   <nav class="gw-pagination" aria-label="Pagination" data-section="{{ section }}">
     {% if pagination.has_prev %}

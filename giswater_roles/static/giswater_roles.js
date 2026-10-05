@@ -84,13 +84,15 @@
     $('body').addClass('gw-overlay-active');
   }
 
-  function showSectionOverlay(message) {
-    $('#synced-section-overlay .gw-section-overlay-text').text(message);
-    $('#synced-section-overlay').prop('hidden', false).addClass('is-visible');
+  function showSectionOverlay(message, section) {
+    var suffix = section === 'audit' ? 'audit' : 'synced';
+    $('#' + suffix + '-section-overlay .gw-section-overlay-text').text(message);
+    $('#' + suffix + '-section-overlay').prop('hidden', false).addClass('is-visible');
   }
 
-  function hideSectionOverlay() {
-    $('#synced-section-overlay').removeClass('is-visible').prop('hidden', true);
+  function hideSectionOverlay(section) {
+    var suffix = section === 'audit' ? 'audit' : 'synced';
+    $('#' + suffix + '-section-overlay').removeClass('is-visible').prop('hidden', true);
   }
 
   function showConfirm(options) {
@@ -234,11 +236,45 @@
     function readUrlPageParams() {
       var params = new URLSearchParams(window.location.search);
       return {
-        synced_page: parseInt(params.get('synced_page') || '1', 10)
+        synced_page: parseInt(params.get('synced_page') || '1', 10),
+        audit_page: parseInt(params.get('audit_page') || '1', 10)
       };
     }
 
-    function buildQueryParams(syncedPage) {
+    function appendAuditQueryParams(params, auditPage) {
+      if (!config.showAuditLog) {
+        return;
+      }
+      var pages = readUrlPageParams();
+      if (auditPage !== null && auditPage !== undefined) {
+        pages.audit_page = auditPage;
+      }
+      var fields = [
+        'audit_type',
+        'audit_process_name',
+        'audit_user_name',
+        'audit_old_data',
+        'audit_new_data',
+        'audit_observ',
+        'audit_date_from',
+        'audit_date_to'
+      ];
+      fields.forEach(function(fieldId) {
+        var value = $.trim($('#' + fieldId).val() || '');
+        if (value) {
+          params.set(fieldId, value);
+        }
+      });
+      var auditPerPage = $('#audit_per_page').val();
+      if (auditPerPage && auditPerPage !== '10') {
+        params.set('audit_per_page', auditPerPage);
+      }
+      if (pages.audit_page > 1) {
+        params.set('audit_page', pages.audit_page);
+      }
+    }
+
+    function buildQueryParams(syncedPage, auditPage) {
       var params = new URLSearchParams();
       var search = $.trim(searchInput.val());
       var schemaRole = $('#schema_role').val();
@@ -273,6 +309,7 @@
       if (pages.synced_page > 1) {
         params.set('synced_page', pages.synced_page);
       }
+      appendAuditQueryParams(params, auditPage);
 
       return params;
     }
@@ -292,8 +329,11 @@
       $('#bulk-role-form').attr('action', (urls.bulkRoles || '') + suffix);
     }
 
-    function getSectionTotal() {
-      var $partial = $('#synced-section-content .gw-table-partial');
+    function getSectionTotal(section) {
+      var selector = section === 'audit'
+        ? '#audit-section-content .gw-table-partial'
+        : '#synced-section-content .gw-table-partial';
+      var $partial = $(selector);
       if (!$partial.length) {
         return 0;
       }
@@ -301,7 +341,10 @@
     }
 
     function updateSectionTotals() {
-      $('.gw-section-synced .gw-count-badge').text(getSectionTotal());
+      $('.gw-section-synced .gw-count-badge').text(getSectionTotal('synced'));
+      if (config.showAuditLog) {
+        $('#audit-count-badge').text(getSectionTotal('audit'));
+      }
     }
 
     function emptyRoleState() {
@@ -682,52 +725,73 @@
       updatePendingRolesUi();
     }
 
-    function fetchSectionHtml(params) {
-      var url = config.partialSyncedUrl;
+    function fetchSectionHtml(section, params) {
+      var url = section === 'audit'
+        ? config.partialAuditUrl
+        : config.partialSyncedUrl;
       var query = params.toString();
       return $.get(url + (query ? '?' + query : ''));
     }
 
-    function loadTableSection(page) {
-      var params = buildQueryParams(page);
-      var $container = $('#synced-section-content');
+    function loadTableSection(section, page) {
+      var params = section === 'audit'
+        ? buildQueryParams(null, page)
+        : buildQueryParams(page, null);
+      var $container = section === 'audit'
+        ? $('#audit-section-content')
+        : $('#synced-section-content');
 
-      showSectionOverlay(config.loadingPage);
-      return fetchSectionHtml(params)
+      showSectionOverlay(config.loadingPage, section);
+      return fetchSectionHtml(section, params)
         .done(function(html) {
           $container.html(html);
           updateBrowserUrl();
-          afterSectionUpdate();
+          if (section === 'synced') {
+            afterSectionUpdate();
+          } else {
+            updateSectionTotals();
+            initTooltips($('#audit-section-content'));
+          }
         })
         .fail(function() {
           alert(config.loadTableError);
         })
         .always(function() {
-          hideSectionOverlay();
+          hideSectionOverlay(section);
         });
     }
 
-    function refreshSection() {
+    function refreshSection(section) {
       var pages = readUrlPageParams();
-      loadTableSection(pages.synced_page);
+      if (section === 'audit') {
+        loadTableSection('audit', pages.audit_page);
+      } else {
+        loadTableSection('synced', pages.synced_page);
+      }
     }
 
     function finishFilterRequest(seq) {
       if (seq !== filterRequestSeq) {
         return;
       }
-      hideSectionOverlay();
+      hideSectionOverlay('synced');
     }
 
-    function applyFilterResponse(seq, syncedHtml) {
+    function applyFilterResponse(seq, data) {
       if (seq !== filterRequestSeq) {
         return;
       }
-      hideSectionOverlay();
-      $('#synced-section-content').html(syncedHtml);
+      hideSectionOverlay('synced');
+      $('#synced-section-content').html(data.synced_html || data);
+      if (config.showAuditLog && data.audit_html) {
+        $('#audit-section-content').html(data.audit_html);
+      }
       updateBrowserUrl();
       try {
         afterSectionUpdate();
+        if (config.showAuditLog) {
+          initTooltips($('#audit-section-content'));
+        }
       } catch (e) {
         /* keep filtered table visible even if post-render UI fails */
       }
@@ -735,7 +799,7 @@
 
     function applyFilters() {
       var seq = ++filterRequestSeq;
-      var params = buildQueryParams(1);
+      var params = buildQueryParams(1, null);
       var query = params.toString();
       var querySuffix = query ? '?' + query : '';
 
@@ -744,13 +808,13 @@
         activeFilterRequest = null;
       }
 
-      showSectionOverlay(config.loadingFilters);
+      showSectionOverlay(config.loadingFilters, 'synced');
 
       if (config.partialTablesUrl) {
         activeFilterRequest = $.getJSON(config.partialTablesUrl + querySuffix);
         activeFilterRequest
           .done(function(data) {
-            applyFilterResponse(seq, data.synced_html);
+            applyFilterResponse(seq, data);
           })
           .fail(function(_jqXHR, textStatus) {
             if (textStatus === 'abort' || seq !== filterRequestSeq) {
@@ -767,10 +831,10 @@
         return;
       }
 
-      activeFilterRequest = fetchSectionHtml(params);
+      activeFilterRequest = fetchSectionHtml('synced', params);
       activeFilterRequest
         .done(function(syncedHtml) {
-          applyFilterResponse(seq, syncedHtml);
+          applyFilterResponse(seq, { synced_html: syncedHtml });
         })
         .fail(function(_jqXHR, textStatus) {
           if (textStatus === 'abort' || seq !== filterRequestSeq) {
@@ -784,6 +848,13 @@
           }
           finishFilterRequest(seq);
         });
+    }
+
+    function applyAuditFilters() {
+      if (!config.showAuditLog) {
+        return;
+      }
+      loadTableSection('audit', 1);
     }
 
     function refreshBulkSchemaMultiSelectLabel() {
@@ -933,14 +1004,33 @@
     $(document).on('click', '.gw-page-link', function(e) {
       e.preventDefault();
       var page = parseInt($(this).data('page'), 10);
+      var section = String($(this).data('section') || 'synced');
       if (!page) {
         return;
       }
-      loadTableSection(page);
+      loadTableSection(section, page);
     });
 
     $(document).on('click', '.gw-refresh-section', function() {
-      refreshSection();
+      refreshSection('synced');
+    });
+
+    $(document).on('click', '.gw-refresh-audit', function() {
+      refreshSection('audit');
+    });
+
+    $('#audit-filter-form').on('submit', function(e) {
+      e.preventDefault();
+      applyAuditFilters();
+    });
+
+    $('#audit-clear-filters').on('click', function(e) {
+      e.preventDefault();
+      $('#audit_type, #audit_process_name').val('');
+      $('#audit_user_name, #audit_old_data, #audit_new_data, #audit_observ').val('');
+      $('#audit_date_from, #audit_date_to').val('');
+      $('#audit_per_page').val('10');
+      applyAuditFilters();
     });
 
     $(document).on('submit', '#bulk-role-form', function(e) {

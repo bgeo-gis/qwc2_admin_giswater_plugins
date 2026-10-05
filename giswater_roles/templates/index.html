@@ -291,6 +291,36 @@
   .gw-section-synced {
     border-left: 4px solid #337ab7;
   }
+  .gw-section-audit {
+    border-left: 4px solid #6c757d;
+  }
+  .gw-section-audit .gw-section-icon {
+    color: #6c757d;
+  }
+  .gw-section-audit .gw-count-badge {
+    background: #6c757d;
+  }
+  .gw-audit-filters {
+    margin-bottom: 14px;
+  }
+  .gw-audit-filters .filter-form {
+    gap: 10px 14px;
+  }
+  .gw-audit-filters .filter-field {
+    flex: 0 1 160px;
+    min-width: 140px;
+  }
+  .gw-audit-filters .filter-field-wide {
+    flex: 1 1 200px;
+    max-width: 260px;
+  }
+  .gw-audit-table td.gw-audit-observ {
+    max-width: 240px;
+    word-break: break-word;
+  }
+  .gw-audit-table td.gw-audit-tstamp {
+    white-space: nowrap;
+  }
   .gw-section-header {
     margin-bottom: 14px;
   }
@@ -747,7 +777,9 @@
   <script type="application/json" id="giswater-roles-config">
     {
       "partialSyncedUrl": {{ url_for('giswater_roles_partial', section='synced')|tojson }},
+      "partialAuditUrl": {{ url_for('giswater_roles_partial', section='audit')|tojson }},
       "partialTablesUrl": {{ url_for('giswater_roles_tables_partial')|tojson }},
+      "showAuditLog": {{ show_audit_log|tojson }},
       "loadTableError": {{ i18n.translate('could_not_load_table')|tojson }},
       "loadingPage": {{ i18n.translate('loading_page')|tojson }},
       "applyingRoles": {{ i18n.translate('applying_roles')|tojson }},
@@ -952,5 +984,116 @@
     </div>
   </div>
   </div>
+
+  {% if show_audit_log %}
+  <div class="gw-section-panel gw-section-audit" id="audit-log-section">
+    <div class="gw-section-header" id="audit-log">
+      <div class="gw-section-header-text">
+        <i class="fas fa-clipboard-list gw-section-icon" aria-hidden="true"></i>
+        <div>
+          <h3 class="gw-section-title">
+            {{ i18n.translate('audit_title') }}
+            <span class="gw-count-badge" id="audit-count-badge">{{ audit_pagination.total }}</span>
+          </h3>
+          <p class="gw-section-help">{{ i18n.translate('audit_help') }}</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel panel-default filter-panel gw-audit-filters">
+      <div class="panel-heading">
+        <i class="fas fa-sliders-h" aria-hidden="true"></i>
+        {{ i18n.translate('audit_filters_title') }}
+      </div>
+      <div class="panel-body">
+        <form id="audit-filter-form" class="filter-form" method="get"
+          action="{{ url_for('giswater_roles') }}">
+          <div class="form-group filter-field">
+            <label for="audit_type">{{ i18n.translate('audit_col_type') }}</label>
+            <select class="form-control" id="audit_type" name="audit_type">
+              <option value="">{{ i18n.translate('audit_all_types') }}</option>
+              {% for log_type in audit_filter_options.types %}
+              <option value="{{ log_type }}"
+                {% if log_type == audit_filters.type %}selected{% endif %}>{{ log_type }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group filter-field filter-field-wide">
+            <label for="audit_process_name">{{ i18n.translate('audit_col_process_name') }}</label>
+            <select class="form-control" id="audit_process_name" name="audit_process_name">
+              <option value="">{{ i18n.translate('audit_all_processes') }}</option>
+              {% for process_name in audit_filter_options.process_names %}
+              <option value="{{ process_name }}"
+                {% if process_name == audit_filters.process_name %}selected{% endif %}>{{ process_name }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group filter-field">
+            <label for="audit_user_name">{{ i18n.translate('audit_col_user_name') }}</label>
+            <input type="text" class="form-control" id="audit_user_name" name="audit_user_name"
+              value="{{ audit_filters.user_name }}"
+              placeholder="{{ i18n.translate('audit_user_placeholder') }}">
+          </div>
+          <div class="form-group filter-field">
+            <label for="audit_old_data">{{ i18n.translate('audit_col_old_data') }}</label>
+            <input type="text" class="form-control" id="audit_old_data" name="audit_old_data"
+              value="{{ audit_filters.old_data }}">
+          </div>
+          <div class="form-group filter-field">
+            <label for="audit_new_data">{{ i18n.translate('audit_col_new_data') }}</label>
+            <input type="text" class="form-control" id="audit_new_data" name="audit_new_data"
+              value="{{ audit_filters.new_data }}">
+          </div>
+          <div class="form-group filter-field filter-field-wide">
+            <label for="audit_observ">{{ i18n.translate('audit_col_observ') }}</label>
+            <input type="text" class="form-control" id="audit_observ" name="audit_observ"
+              value="{{ audit_filters.observ }}"
+              placeholder="{{ i18n.translate('audit_observ_placeholder') }}">
+          </div>
+          <div class="form-group filter-field">
+            <label for="audit_date_from">{{ i18n.translate('audit_date_from') }}</label>
+            <input type="date" class="form-control" id="audit_date_from" name="audit_date_from"
+              value="{{ audit_filters.date_from }}">
+          </div>
+          <div class="form-group filter-field">
+            <label for="audit_date_to">{{ i18n.translate('audit_date_to') }}</label>
+            <input type="date" class="form-control" id="audit_date_to" name="audit_date_to"
+              value="{{ audit_filters.date_to }}">
+          </div>
+          <div class="form-group filter-field">
+            <label for="audit_per_page">{{ i18n.translate('per_page') }}</label>
+            <select class="form-control" id="audit_per_page" name="audit_per_page">
+              <option value="10" {% if audit_filters.per_page == 10 %}selected{% endif %}>10</option>
+              <option value="25" {% if audit_filters.per_page == 25 %}selected{% endif %}>25</option>
+              <option value="50" {% if audit_filters.per_page == 50 %}selected{% endif %}>50</option>
+            </select>
+          </div>
+          <div class="filter-actions">
+            <button type="submit" class="btn btn-primary" id="audit-filter-submit">
+              <i class="fas fa-filter"></i> {{ i18n.translate('filter') }}
+            </button>
+            <button type="button" class="btn btn-default" id="audit-clear-filters">
+              <i class="fas fa-times"></i> {{ i18n.translate('clear_filters') }}
+            </button>
+            <button type="button" class="btn btn-default gw-refresh-audit"
+              data-toggle="tooltip" title="{{ i18n.translate('tooltip_refresh') }}">
+              <i class="fas fa-sync"></i> {{ i18n.translate('refresh') }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="gw-section-wrap">
+      <div id="audit-section-content">
+        {% include 'plugins/giswater_roles/templates/_audit_table.html' %}
+      </div>
+      <div id="audit-section-overlay" class="gw-section-overlay" hidden>
+        <div class="gw-spinner"><i class="fas fa-spinner fa-spin"></i></div>
+        <p class="gw-section-overlay-text"></p>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
 {% endblock %}

@@ -111,15 +111,23 @@ class GiswaterRolesController():
         """Return table HTML for AJAX pagination."""
         from flask import abort, render_template, request
 
-        if section != 'synced':
+        if section not in ('synced', 'audit'):
             abort(404)
 
         context, error = self._load_index_context(request.args)
         if error:
             abort(500)
 
+        if section == 'audit' and not context.get('show_audit_log'):
+            abort(404)
+
+        template = (
+            self._audit_table_partial_template()
+            if section == 'audit'
+            else self._table_partial_template()
+        )
         return render_template(
-            self._table_partial_template(),
+            template,
             page_url=self._page_url,
             i18n=i18n,
             **context
@@ -133,18 +141,30 @@ class GiswaterRolesController():
         if error:
             abort(500)
 
-        return jsonify(
-            synced_html=render_template(
+        payload = {
+            'synced_html': render_template(
                 self._table_partial_template(),
                 page_url=self._page_url,
                 i18n=i18n,
                 **context
             ),
-            synced_total=context['synced_pagination']['total'],
-        )
+            'synced_total': context['synced_pagination']['total'],
+        }
+        if context.get('show_audit_log'):
+            payload['audit_html'] = render_template(
+                self._audit_table_partial_template(),
+                page_url=self._page_url,
+                i18n=i18n,
+                **context
+            )
+            payload['audit_total'] = context['audit_pagination']['total']
+        return jsonify(payload)
 
     def _table_partial_template(self):
         return "%s/_synced_table.html" % self.templates_dir
+
+    def _audit_table_partial_template(self):
+        return "%s/_audit_table.html" % self.templates_dir
 
     def _load_index_context(self, args):
         search = (args.get('search') or '').strip()
@@ -160,6 +180,15 @@ class GiswaterRolesController():
         users = []
         synced_pagination = self._empty_pagination(per_page)
         error = None
+
+        plugin_cfg = self._plugin_config()
+        show_audit_log = plugin_cfg['show_audit_log']
+        audit_filters = self._parse_audit_filters(args)
+        audit_pagination = self._empty_pagination(audit_filters['per_page'])
+        audit_filter_options = {
+            'types': [],
+            'process_names': [],
+        }
 
         try:
             (
@@ -196,6 +225,27 @@ class GiswaterRolesController():
             self.logger.error("Error loading giswater roles index: %s" % e)
             error = str(e)
 
+        if show_audit_log:
+            try:
+                audit_filter_options = self._load_audit_filter_options()
+                if (
+                    audit_filters['type']
+                    and audit_filters['type'] not in audit_filter_options['types']
+                ):
+                    audit_filters['type'] = ''
+                if (
+                    audit_filters['process_name']
+                    and audit_filters['process_name'] not in (
+                        audit_filter_options['process_names']
+                    )
+                ):
+                    audit_filters['process_name'] = ''
+                audit_pagination = self._load_audit_logs(audit_filters)
+            except Exception as e:
+                self.logger.error("Error loading audit user_log: %s" % e)
+                if error is None:
+                    error = str(e)
+
         filter_params = self._build_filter_params(
             search,
             schema_role_filter,
@@ -204,9 +254,9 @@ class GiswaterRolesController():
             not_in_pg_filter,
             per_page,
             synced_page,
+            audit_filters if show_audit_log else None,
         )
 
-        plugin_cfg = self._plugin_config()
         show_schema_roles = plugin_cfg['show_schema_roles']
         show_manager_roles = plugin_cfg['show_manager_roles']
         show_giswater_roles = plugin_cfg['show_giswater_roles']
@@ -226,7 +276,14 @@ class GiswaterRolesController():
             ),
             'user_source_mode': user_source_mode,
             'show_qwc_sync': user_source_mode == USER_SOURCE_KEYCLOAK,
-            'require_audit_comment': plugin_cfg['require_audit_comment'],
+            'require_audit_comment': (
+                plugin_cfg['require_audit_comment']
+                and plugin_cfg['write_audit_log']
+            ),
+            'show_audit_log': show_audit_log,
+            'audit_pagination': audit_pagination,
+            'audit_filters': audit_filters,
+            'audit_filter_options': audit_filter_options,
             'description': i18n.translate(
                 'description_%s' % user_source_mode
             ),
@@ -302,7 +359,7 @@ class GiswaterRolesController():
 
     def _build_filter_params(
         self, search='', schema_role='', manager_role='', giswater_role='',
-        not_in_pg=False, per_page=None, synced_page=1
+        not_in_pg=False, per_page=None, synced_page=1, audit_filters=None
     ):
         if per_page is None:
             per_page = self._default_page_size()
@@ -321,10 +378,54 @@ class GiswaterRolesController():
             params['per_page'] = per_page
         if synced_page > 1:
             params['synced_page'] = synced_page
+        if audit_filters:
+            params.update(self._build_audit_filter_params(audit_filters))
         return params
+
+    def _build_audit_filter_params(self, audit_filters):
+        params = {}
+        if not audit_filters:
+            return params
+        for key in (
+            'type', 'process_name', 'user_name', 'old_data', 'new_data',
+            'observ', 'date_from', 'date_to'
+        ):
+            value = (audit_filters.get(key) or '').strip()
+            if value:
+                params['audit_%s' % key] = value
+        audit_per_page = audit_filters.get('per_page') or self._default_page_size()
+        if audit_per_page != self._default_page_size():
+            params['audit_per_page'] = audit_per_page
+        audit_page = audit_filters.get('page') or 1
+        if audit_page > 1:
+            params['audit_page'] = audit_page
+        return params
+
+    def _parse_audit_filters(self, args):
+        return {
+            'type': (args.get('audit_type') or '').strip(),
+            'process_name': (args.get('audit_process_name') or '').strip(),
+            'user_name': (args.get('audit_user_name') or '').strip(),
+            'old_data': (args.get('audit_old_data') or '').strip(),
+            'new_data': (args.get('audit_new_data') or '').strip(),
+            'observ': (args.get('audit_observ') or '').strip(),
+            'date_from': self._parse_date_filter(args.get('audit_date_from')),
+            'date_to': self._parse_date_filter(args.get('audit_date_to')),
+            'page': self._parse_page(args.get('audit_page')),
+            'per_page': self._parse_per_page(args.get('audit_per_page')),
+        }
+
+    def _parse_date_filter(self, value):
+        raw = (value or '').strip()
+        if not raw:
+            return ''
+        if not re.match(r'^\d{4}-\d{2}-\d{2}$', raw):
+            return ''
+        return raw
 
     def _filter_params(self):
         from flask import request
+        show_audit_log = self._plugin_config()['show_audit_log']
         return self._build_filter_params(
             search=(request.args.get('search') or '').strip(),
             schema_role=(request.args.get('schema_role') or '').strip(),
@@ -335,6 +436,10 @@ class GiswaterRolesController():
             ),
             per_page=self._parse_per_page(request.args.get('per_page')),
             synced_page=self._parse_page(request.args.get('synced_page')),
+            audit_filters=(
+                self._parse_audit_filters(request.args)
+                if show_audit_log else None
+            ),
         )
 
     def _index_url(self, filter_params):
@@ -683,7 +788,7 @@ class GiswaterRolesController():
         return self._redirect_index()
 
     def delete_pg_user(self):
-        """Drop a PostgreSQL login role for a directory user."""
+        """Disable PG access (NOLOGIN + revoke plugin roles) and remove from QWC."""
         from flask import flash, request
 
         username = (request.form.get('username') or '').strip()
@@ -700,15 +805,29 @@ class GiswaterRolesController():
                     "pg_role_not_found_plain", username=username
                 ))
 
-            self._drop_pg_login_user(
-                pg_username, observ=self._read_audit_comment()
-            )
-            flash(
-                i18n.translate("pg_user_deleted", username=pg_username),
-                'success'
-            )
+            audit_comment = self._read_audit_comment()
+            self._deactivate_pg_user(pg_username, observ=audit_comment)
+
+            qwc_removed = False
+            qwc_user = self._get_qwc_user_by_name(username)
+            if qwc_user is not None:
+                self._delete_qwc_user(qwc_user.id)
+                qwc_removed = True
+
+            if qwc_removed:
+                flash(
+                    i18n.translate(
+                        "pg_user_deleted_with_qwc", username=pg_username
+                    ),
+                    'success'
+                )
+            else:
+                flash(
+                    i18n.translate("pg_user_deleted", username=pg_username),
+                    'success'
+                )
         except Exception as e:
-            self.logger.error("Error deleting PG user %s: %s" % (username, e))
+            self.logger.error("Error disabling PG user %s: %s" % (username, e))
             flash(
                 Markup(i18n.translate(
                     "could_not_delete_pg_user",
@@ -938,6 +1057,15 @@ class GiswaterRolesController():
             'require_audit_comment': self._parse_bool_config(
                 config.get('giswater_roles_require_comment'), False
             ),
+            'write_audit_log': self._parse_bool_config(
+                config.get('giswater_roles_write_audit_log'), True
+            ),
+            'show_audit_log': self._parse_bool_config(
+                config.get('giswater_roles_show_audit_log'), False
+            ),
+            'username_filter': self._parse_username_filter(
+                config.get('giswater_roles_username_filter')
+            ),
             'keycloak_token_url': (
                 config.get('giswater_keycloak_token_url') or ''
             ).strip(),
@@ -983,12 +1111,66 @@ class GiswaterRolesController():
             return False
         return default
 
+    def _parse_username_filter(self, value):
+        """Return a PostgreSQL ILIKE pattern, or None if disabled."""
+        if value is None:
+            return None
+        pattern = str(value).strip()
+        return pattern or None
+
+    def _username_matches_like(self, username, pattern):
+        """Match username with PostgreSQL ILIKE semantics (% and _)."""
+        if not pattern:
+            return True
+        regex_parts = []
+        i = 0
+        length = len(pattern)
+        while i < length:
+            char = pattern[i]
+            if char == '\\' and i + 1 < length:
+                regex_parts.append(re.escape(pattern[i + 1]))
+                i += 2
+                continue
+            if char == '%':
+                regex_parts.append('.*')
+            elif char == '_':
+                regex_parts.append('.')
+            else:
+                regex_parts.append(re.escape(char))
+            i += 1
+        try:
+            return re.fullmatch(
+                ''.join(regex_parts),
+                username or '',
+                flags=re.IGNORECASE
+            ) is not None
+        except re.error:
+            self.logger.warning(
+                "Invalid giswater_roles_username_filter pattern '%s'",
+                pattern
+            )
+            return True
+
+    def _filter_directory_users_by_name(self, users):
+        """Apply configured username ILIKE filter to directory users."""
+        pattern = self._plugin_config().get('username_filter')
+        if not pattern:
+            return users
+        return [
+            user for user in users
+            if self._username_matches_like(user.get('name') or '', pattern)
+        ]
+
     def _read_audit_comment(self, required=None):
         """Read audit comment from the current request; enforce when required."""
         from flask import request
 
+        plugin_cfg = self._plugin_config()
         if required is None:
-            required = self._plugin_config()['require_audit_comment']
+            required = (
+                plugin_cfg['require_audit_comment']
+                and plugin_cfg['write_audit_log']
+            )
         comment = (request.form.get('audit_comment') or '').strip()
         if required and not comment:
             raise ValueError(i18n.translate('audit_comment_required'))
@@ -1000,8 +1182,10 @@ class GiswaterRolesController():
     def _load_directory_users(self):
         """Load users from the configured directory (Keycloak or QWC)."""
         if self._uses_keycloak_users():
-            return self._load_keycloak_users()
-        return self._load_qwc_directory_users()
+            users = self._load_keycloak_users()
+        else:
+            users = self._load_qwc_directory_users()
+        return self._filter_directory_users_by_name(users)
 
     def _load_qwc_directory_users(self):
         from flask import g
@@ -1372,6 +1556,131 @@ class GiswaterRolesController():
         db_url = self._giswater_db_url(for_write=for_write)
         return self.db_engine.db_engine(db_url).connect()
 
+    def _load_audit_filter_options(self):
+        """Return distinct type/process_name values for audit filters."""
+        with self._with_giswater_connection() as conn:
+            type_rows = conn.execute(
+                text("""
+                    SELECT DISTINCT type
+                    FROM audit.user_log
+                    WHERE type IS NOT NULL AND BTRIM(type) <> ''
+                    ORDER BY type
+                """)
+            ).fetchall()
+            process_rows = conn.execute(
+                text("""
+                    SELECT DISTINCT process_name
+                    FROM audit.user_log
+                    WHERE process_name IS NOT NULL
+                      AND BTRIM(process_name) <> ''
+                    ORDER BY process_name
+                """)
+            ).fetchall()
+        return {
+            'types': [row[0] for row in type_rows],
+            'process_names': [row[0] for row in process_rows],
+        }
+
+    def _audit_log_where_clause(self, filters):
+        """Build WHERE clause and bind params for audit.user_log filters."""
+        clauses = []
+        params = {}
+
+        if filters.get('type'):
+            clauses.append("type = :type")
+            params['type'] = filters['type']
+        if filters.get('process_name'):
+            clauses.append("process_name = :process_name")
+            params['process_name'] = filters['process_name']
+        if filters.get('user_name'):
+            clauses.append("user_name ILIKE :user_name")
+            params['user_name'] = '%%%s%%' % filters['user_name']
+        if filters.get('old_data'):
+            clauses.append("COALESCE(old_data, '') ILIKE :old_data")
+            params['old_data'] = '%%%s%%' % filters['old_data']
+        if filters.get('new_data'):
+            clauses.append("COALESCE(new_data, '') ILIKE :new_data")
+            params['new_data'] = '%%%s%%' % filters['new_data']
+        if filters.get('observ'):
+            clauses.append("COALESCE(observ, '') ILIKE :observ")
+            params['observ'] = '%%%s%%' % filters['observ']
+        if filters.get('date_from'):
+            clauses.append("tstamp::date >= CAST(:date_from AS date)")
+            params['date_from'] = filters['date_from']
+        if filters.get('date_to'):
+            clauses.append("tstamp::date <= CAST(:date_to AS date)")
+            params['date_to'] = filters['date_to']
+
+        where_sql = (' WHERE ' + ' AND '.join(clauses)) if clauses else ''
+        return where_sql, params
+
+    def _load_audit_logs(self, filters):
+        """Load paginated audit.user_log rows with filters."""
+        page = filters.get('page') or 1
+        per_page = filters.get('per_page') or self._default_page_size()
+        where_sql, params = self._audit_log_where_clause(filters)
+
+        with self._with_giswater_connection() as conn:
+            total = conn.execute(
+                text("SELECT COUNT(*) FROM audit.user_log%s" % where_sql),
+                params
+            ).scalar() or 0
+
+            total_pages = max(1, (total + per_page - 1) // per_page) if total else 1
+            page = max(1, min(page, total_pages))
+            offset = (page - 1) * per_page
+            query_params = dict(params)
+            query_params.update({
+                'limit': per_page,
+                'offset': offset,
+            })
+            rows = conn.execute(
+                text("""
+                    SELECT
+                        id,
+                        type,
+                        process_name,
+                        user_name,
+                        old_data,
+                        new_data,
+                        tstamp,
+                        observ
+                    FROM audit.user_log
+                    %s
+                    ORDER BY tstamp DESC, id DESC
+                    LIMIT :limit OFFSET :offset
+                """ % where_sql),
+                query_params
+            ).fetchall()
+
+        items = []
+        for row in rows:
+            tstamp = row[6]
+            items.append({
+                'id': row[0],
+                'type': row[1] or '',
+                'process_name': row[2] or '',
+                'user_name': row[3] or '',
+                'old_data': row[4] or '',
+                'new_data': row[5] or '',
+                'tstamp': (
+                    tstamp.strftime('%Y-%m-%d %H:%M:%S') if tstamp else ''
+                ),
+                'observ': row[7] or '',
+            })
+
+        return {
+            'items': items,
+            'page': page,
+            'per_page': per_page,
+            'total': total,
+            'total_pages': total_pages,
+            'has_prev': page > 1,
+            'has_next': page < total_pages,
+            'start': offset + 1 if total else 0,
+            'end': min(offset + per_page, total),
+        }
+
     def _pg_role_exists(self, username):
         self._validate_pg_identifier(username)
         with self._with_giswater_connection() as conn:
@@ -1530,7 +1839,9 @@ class GiswaterRolesController():
     def _insert_user_log(
         self, conn, log_type, user_name, old_data=None, new_data=None, observ=None
     ):
-        """Write an entry to audit.user_log (same schema as QWC2 Login)."""
+        """Write an entry to audit.user_log when write_audit_log is enabled."""
+        if not self._plugin_config()['write_audit_log']:
+            return
         conn.execute(
             USER_LOG_INSERT,
             {
@@ -1587,8 +1898,8 @@ class GiswaterRolesController():
                 return pg_name
         return None
 
-    def _drop_pg_login_user(self, username, observ=None):
-        """Revoke privileges and drop a PostgreSQL login role."""
+    def _deactivate_pg_user(self, username, observ=None):
+        """Revoke configured plugin roles and disable PostgreSQL login; keep the role."""
         self._validate_pg_identifier(username)
         if not self._pg_role_exists(username):
             raise ValueError(i18n.translate(
@@ -1596,10 +1907,13 @@ class GiswaterRolesController():
             ))
 
         quoted_user = self._quote_pg_identifier(username)
+        roles_to_revoke = sorted(
+            self._get_all_grantable_assigned_roles(username)
+        )
 
         with self._with_giswater_connection(for_write=True) as conn:
             with conn.begin():
-                for role in sorted(self._get_all_grantable_assigned_roles(username)):
+                for role in roles_to_revoke:
                     quoted_role = self._quote_pg_identifier(role)
                     conn.execute(
                         text("REVOKE %s FROM %s" % (quoted_role, quoted_user))
@@ -1619,7 +1933,11 @@ class GiswaterRolesController():
                         % (quoted_db, quoted_user)
                     )
                 )
+                conn.execute(text("ALTER ROLE %s NOLOGIN" % quoted_user))
                 self._insert_user_log(
                     conn, "delete", username, observ=observ
                 )
-                conn.execute(text("DROP ROLE %s" % quoted_user))
+
+    def _drop_pg_login_user(self, username, observ=None):
+        """Backward-compatible alias for deactivating a PostgreSQL user."""
+        return self._deactivate_pg_user(username, observ=observ)
