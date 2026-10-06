@@ -68,16 +68,16 @@ class GiswaterRolesI18n:
 
         return 'es'
 
-    def translate(self, key, **kwargs):
-        if ADMIN_I18N_AVAILABLE and key.startswith('interface.'):
+    def translate(self, message_key, **kwargs):
+        if ADMIN_I18N_AVAILABLE and message_key.startswith('interface.'):
             try:
-                return admin_i18n(key, **kwargs)
+                return admin_i18n(message_key, **kwargs)
             except Exception:
                 pass
 
         lang = self.get_language()
         translations = self._translations.get(lang, self._translations.get('es', {}))
-        text = translations.get(key, key)
+        text = translations.get(message_key, message_key)
 
         if kwargs:
             try:
@@ -87,8 +87,8 @@ class GiswaterRolesI18n:
 
         return text
 
-    def __call__(self, key, **kwargs):
-        return self.translate(key, **kwargs)
+    def __call__(self, message_key, **kwargs):
+        return self.translate(message_key, **kwargs)
 
 
 plugin_dir = os.path.dirname(os.path.abspath(__file__))

@@ -1332,6 +1332,45 @@ class GiswaterRolesController():
         setattr(g, cache_key, config)
         return config
 
+    def _theme_db_url(self, config, db_url_key):
+        """Return a theme database URL when it is not set on the config root.
+
+        Themes that share one URL are used as-is. When they differ, the first
+        theme in the file is used so role management still has a connection.
+        """
+        themes = config.get('themes') or {}
+        if not isinstance(themes, dict):
+            return None
+
+        found = []
+        for theme_name, theme in themes.items():
+            if not isinstance(theme, dict):
+                continue
+            url = theme.get(db_url_key)
+            if not url and db_url_key == 'db_url_write':
+                url = theme.get('db_url_read')
+            if url:
+                found.append((theme_name, url))
+
+        if not found:
+            return None
+
+        unique_urls = []
+        for theme_name, url in found:
+            if url not in unique_urls:
+                unique_urls.append(url)
+        if len(unique_urls) > 1:
+            self.logger.warning(
+                "giswaterConfig.json has no '%s'. Themes use different "
+                "databases (%s); using theme '%s'. Set config.%s to choose "
+                "the database for role management.",
+                db_url_key,
+                ", ".join("%s" % name for name, _url in found),
+                found[0][0],
+                db_url_key,
+            )
+        return found[0][1]
+
     def _giswater_db_url(self, for_write=False):
         giswater_config = self._load_giswater_config()
         config = giswater_config.get('config', {})
@@ -1341,6 +1380,9 @@ class GiswaterRolesController():
         else:
             db_url_key = 'db_url_read'
             db_url = config.get(db_url_key)
+
+        if not db_url:
+            db_url = self._theme_db_url(config, db_url_key)
 
         if not db_url:
             raise RuntimeError(
